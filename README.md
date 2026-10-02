@@ -23,7 +23,7 @@ El sistema consta de dos ejecutables:
 - **Cliente Alumno:** Una interfaz gráfica minimalista en la que el alumno ingresa sus datos y examen para enviarlos de forma segura al docente. Esta interfaz además realiza algunas validaciones para evitar los errores más típicos (ej: enviar un archivo `.o` en lugar de `.pas` en el módulo imperativo).
 - **Servidor Docente:** Un proceso que recibe las entregas en tiempo real, las almacena en un directorio local y genera automáticamente un log (`.csv`) con el registro de los datos para lograr trazabilidad y detectar anomalías.
 
-_[NOTA: El Servidor Docente opera actualmente mediante una interfaz de consola (CLI) completamente funcional y masomenos intuitiva. El desarrollo de su interfaz gráfica fue pausado intencionalmente para poder validar primero el funcionamiento del sistema tal cual esta. Una vez hecho esto implementar la interfaz deberia ser un proceso rapido]._
+_[NOTA: El Servidor Docente opera actualmente mediante una interfaz de consola (CLI) completamente funcional y más o menos intuitiva. Pause el desarrollo de su interfaz gráfica para poder validar primero el funcionamiento del sistema tal cual esta. Una vez hecho esto implementar la interfaz deberia ser un proceso rapido]._
 
 En su estado actual el sistema soporta la entrega de parciales de los tres módulos (Imperativo, Objetos, Concurrente), está pensado para ser usado sobre el sistema operativo Windows (utilizado en las computadoras de los laboratorios) y utiliza el protocolo HTTP.
 
@@ -61,7 +61,7 @@ Al finalizar, el docente apaga el servidor. Se puede contrastar que los parciale
 El camino feliz presupone que todas las computadoras están conectadas a la misma red WiFi, con comunicación par a par habilitada. Si existieran restricciones como _Access Point Isolation_, pensé en alternativas que pueden ser implementadas en el codigo de este sistema. Estas eliminan la dependencia de la configuracion de red de la facultad y son transparentes a los usuarios -El flujo del camino feliz no cambia desde la perspectiva de docentes y alumnos-.
 
 1. **HotSpot Local:** El sistema convierte la máquina del docente en un router aprovechando una función nativa de Windows. Esto crea una red 100% local, aislada de la red Wifi y que se puede usar incluso si no hay internet en la facultad. El único límite es el máximo de conexiones simultáneas de windows (8), pero esto es salvable implementando un gestor de conexión efímera en el codigo del cliente alumno.
-2. **Triangulación:** Transformar el servidor docente en un cliente que consulte a un servidor puente ligero, que podria ser desplegado por ejemplo en la nube (con Render o servicio similar). Alumnos y docentes harían peticiones de salida estándar, puenteando cualquier bloqueo local, aunque esto si requeriría conexión a internet durante el examen.
+2. **Patron productor-consumidor:** Transformar el servidor docente en un cliente que consulte a un servidor puente ligero, que podria ser desplegado por ejemplo en la nube (con Render o servicio similar). Alumnos y docentes harían peticiones de salida estándar, puenteando cualquier bloqueo local, aunque esto si requeriría conexión a internet durante el examen.
 
 ---
 
