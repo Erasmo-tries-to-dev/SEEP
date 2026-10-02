@@ -1,0 +1,37 @@
+# Archivos de configuración de Poetry
+poetry.lock
+pyproject.toml
+
+# Entornos virtuales
+.venv/
+venv/
+ENV/
+env/
+
+# Archivos cacheados de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Compilación a Ejecutable (PyInstaller / Auto-py-to-exe)
+build/
+*.spec
+# Oculta todo el contenido de dist/ EXCEPTO los ejecutables
+dist/*
+!dist/*.exe
+
+# Carpetas de entregas del SEEP 
+entregas_imperativo/
+entregas_objetos/
+entregas_concurrente/
+
+# Archivos de auditoría
+registro_entregas_imperativo.csv
+registro_entregas_objetos.csv
+registro_entregas_concurrente.csv
+*.csv
+
+# Archivos de SO y editores
+.DS_Store
+.vscode/
+.idea/
