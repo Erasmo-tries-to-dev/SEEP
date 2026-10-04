@@ -2,12 +2,13 @@ import os
 import threading
 import requests
 
-# CustomTkinter es un fork de Tkinter que me permite hacer una interfaz grafica relativamente agradable.
-# Me resulto la opcion mas sencilla para una interfaz simple como esta.
+# CustomTkinter es un fork de Tkinter
 import customtkinter as ctk
 from tkinter import filedialog
-import socket
 
+# --- CONFIGURACIÓN DE LA NUBE ---
+# Reemplazá esta URL por la que te asigne Render cuando subas el SEEP-Buffer
+URL_NUBE = ""
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
@@ -16,18 +17,14 @@ class AppAlumno(ctk.CTk):
     """
     Clase principal de la interfaz gráfica del Cliente Alumno del SEEP.
     Gestiona la captura de datos del estudiante, la selección validada del archivo
-    y la transmisión segura del mismo hacia el servidor docente.
+    y la transmisión segura del mismo hacia el servidor puente en la nube.
     """
 
     def __init__(self):
-        """
-        Inicializa la ventana principal, define sus dimensiones y construye
-        todos los elementos visuales (etiquetas, campos de texto y botones).
-        """
         super().__init__()
 
         self.title("SEEP - Taller de Programación")
-        self.geometry("500x700")
+        self.geometry("500x620")  # Altura reducida al quitar el campo IP
         self.resizable(False, False)
 
         self.ruta_archivo = None
@@ -40,17 +37,12 @@ class AppAlumno(ctk.CTk):
         self.frame_form = ctk.CTkFrame(self)
         self.frame_form.pack(pady=10, padx=20, fill="both")
 
-        self.lbl_ip = ctk.CTkLabel(self.frame_form, text="IP:", anchor="w")
-        self.lbl_ip.pack(pady=(15, 0), padx=20, fill="x")
-        self.entry_ip = ctk.CTkEntry(
-            self.frame_form, placeholder_text="Ej: Ver pizarrón o preguntar a docente"
-        )
-        self.entry_ip.pack(pady=(5, 10), padx=20, fill="x")
+        # --- SE ELIMINÓ EL CAMPO IP ---
 
         self.lbl_pin = ctk.CTkLabel(
             self.frame_form, text="PIN de Seguridad:", anchor="w"
         )
-        self.lbl_pin.pack(pady=0, padx=20, fill="x")
+        self.lbl_pin.pack(pady=(15, 0), padx=20, fill="x")
 
         self.entry_pin = ctk.CTkEntry(
             self.frame_form, placeholder_text="Ingrese el PIN", show="*"
@@ -119,10 +111,6 @@ class AppAlumno(ctk.CTk):
         self.btn_enviar.pack(pady=(5, 20), padx=40, fill="x")
 
     def al_cambiar_modulo(self, _):
-        """
-        Limpia el archivo actualmente seleccionado si el alumno cambia de módulo,
-        forzándolo a seleccionar un archivo que coincida con la nueva extensión requerida.
-        """
         self.ruta_archivo = None
         self.lbl_archivo_seleccionado.configure(
             text="Ningún archivo seleccionado", text_color="gray"
@@ -130,15 +118,6 @@ class AppAlumno(ctk.CTk):
         self.mostrar_estado("", "gray")
 
     def seleccionar_archivo(self):
-        """
-        Abre el explorador de archivos nativo de Windows filtrando por la extensión
-        correspondiente al módulo seleccionado. Realiza validaciones de extensión
-        y de peso máximo (1 MB) antes de aceptar el archivo.
-        """
-        # Un parcial de imperativo de los que tomamos en el turno F pesa unos 38 kb.
-        # El parcial de objetos deberia ser el mas pesado de los 3 modulos, pero como referencia el archivo TPProyectoAlumnos.zip subido a ideas pesa tan solo 85 kb.
-        # Entonces 1 MB parece un limite suficiente, quizas incluso muy generoso y convenga bajarlo en un futuro.
-
         modulo_seleccionado = self.combo_modulo.get()
 
         if modulo_seleccionado == "Imperativo":
@@ -146,9 +125,7 @@ class AppAlumno(ctk.CTk):
         elif modulo_seleccionado == "Objetos":
             tipos_archivo = [("Archivos ZIP", "*.zip")]
         else:
-            tipos_archivo = [
-                ("Todos los archivos", "*.*")
-            ]  # Concurrente no tiene extension, asi que no puedo filtrar por extension.
+            tipos_archivo = [("Todos los archivos", "*.*")]
 
         ruta = filedialog.askopenfilename(
             title="Seleccionar parcial",
@@ -170,9 +147,7 @@ class AppAlumno(ctk.CTk):
             ):
                 self.marcar_error_archivo("Error: El archivo debe ser .zip")
                 return
-            elif (
-                modulo_seleccionado == "Concurrente" and "." in nombre_archivo
-            ):  # De igual manera aca valido que no tenga extension.
+            elif modulo_seleccionado == "Concurrente" and "." in nombre_archivo:
                 self.marcar_error_archivo(
                     "Error: Seleccioná el archivo de R-Info (sin extensión)"
                 )
@@ -189,10 +164,6 @@ class AppAlumno(ctk.CTk):
             self.mostrar_estado("", "gray")
 
     def marcar_error_archivo(self, mensaje):
-        """
-        Helper para mostrar mensajes de error relacionados a la selección
-        del archivo y limpiar cualquier selección inválida previa.
-        """
         self.mostrar_estado(mensaje, "#e74c3c")
         self.ruta_archivo = None
         self.lbl_archivo_seleccionado.configure(
@@ -200,25 +171,15 @@ class AppAlumno(ctk.CTk):
         )
 
     def mostrar_estado(self, mensaje, color):
-        """
-        Actualiza el label inferior de la interfaz gráfica para comunicar
-        al usuario el estado de su operación o posibles errores.
-        """
         self.lbl_estado.configure(text=mensaje, text_color=color)
 
     def iniciar_entrega(self):
-        """
-        Valida que todos los campos del formulario estén completos.
-        Bloquea la interfaz temporalmente y lanza un hilo secundario
-        para gestionar la comunicación de red sin congelar la ventana.
-        """
-        ip = self.entry_ip.get().strip()
         pin = self.entry_pin.get().strip()
         apellidos = self.entry_apellidos.get().strip()
         nombres = self.entry_nombres.get().strip()
         identificador = self.entry_id.get().strip()
 
-        if not all([ip, pin, apellidos, nombres, identificador]):
+        if not all([pin, apellidos, nombres, identificador]):
             self.mostrar_estado("Error: Completá todos los campos", "#e74c3c")
             return
 
@@ -227,49 +188,41 @@ class AppAlumno(ctk.CTk):
             return
 
         self.btn_enviar.configure(state="disabled", text="Enviando...")
-        self.mostrar_estado("Conectando con la PC del docente...", "#f1c40f")
+        self.mostrar_estado("Conectando con la nube...", "#f1c40f")
 
         hilo = threading.Thread(
             target=self.enviar_red,
-            args=(ip, pin, apellidos, nombres, identificador, self.ruta_archivo),
+            args=(pin, apellidos, nombres, identificador, self.ruta_archivo),
         )
         hilo.start()
 
-    def enviar_red(self, ip, pin, apellidos, nombres, identificador, ruta):
-        """
-        Función ejecutada en segundo plano. Verifica la conexión inicial con el
-        servidor docente y, de ser exitosa, transmite los datos del estudiante,
-        el hostname local y el archivo en formato multipart/form-data.
-        Utiliza self.after() para actualizar la GUI principal de manera segura.
-        """
-        url_ping = f"http://{ip}:5000/ping"
-        url_upload = f"http://{ip}:5000/upload"
-
+    def enviar_red(self, pin, apellidos, nombres, identificador, ruta):
         try:
-            requests.get(url_ping, timeout=3)
-
             with open(ruta, "rb") as f:
-                archivos = {"file": f}
+                # El buffer.py espera que la clave del archivo sea 'archivo'
+                archivos = {"archivo": f}
+
+                # Las claves del form de datos se ajustan a lo que espera buffer.py
                 datos = {
                     "pin": pin,
                     "apellidos": apellidos,
                     "nombres": nombres,
-                    "identificador": identificador,
-                    "hostname": socket.gethostname(),
+                    "legajo": identificador,
                 }
 
+                # Timeout de 15 segundos para contemplar conexiones de internet lentas
                 respuesta = requests.post(
-                    url_upload, data=datos, files=archivos, timeout=10
+                    URL_NUBE, data=datos, files=archivos, timeout=15
                 )
 
                 if respuesta.status_code == 200:
                     self.after(
                         0, lambda: self.mostrar_estado("✅ Entrega exitosa.", "#2ecc71")
                     )
-                    # No reactivo el boton de enviar, para evitar que se envie el mismo parcial (o spam) varias veces. Si se quiere volver a enviar para corregir algo, se debera cerrar y volver a abrir la aplicacion.
                     self.after(0, lambda: self.btn_enviar.configure(text="Entregado"))
                 else:
-                    msg_error = respuesta.json().get("error", "Error en el servidor")
+                    # buffer.py devuelve el error en texto plano (ej: "PIN inválido o buzón cerrado")
+                    msg_error = respuesta.text
                     self.after(
                         0,
                         lambda: self.mostrar_estado(
@@ -282,7 +235,7 @@ class AppAlumno(ctk.CTk):
             self.after(
                 0,
                 lambda: self.mostrar_estado(
-                    "❌ Tiempo de espera agotado. Verificá la IP.", "#e74c3c"
+                    "❌ Tiempo de espera agotado. Verificá tu internet.", "#e74c3c"
                 ),
             )
             self.after(0, self.reactivar_boton)
@@ -290,7 +243,7 @@ class AppAlumno(ctk.CTk):
             self.after(
                 0,
                 lambda: self.mostrar_estado(
-                    "❌ No se pudo conectar. Verificá la IP.", "#e74c3c"
+                    "❌ No hay conexión a internet.", "#e74c3c"
                 ),
             )
             self.after(0, self.reactivar_boton)
@@ -304,10 +257,6 @@ class AppAlumno(ctk.CTk):
             self.after(0, self.reactivar_boton)
 
     def reactivar_boton(self):
-        """
-        Restaura el botón de envío a su estado original permitiendo al alumno
-        corregir sus datos y realizar un nuevo intento de entrega.
-        """
         self.btn_enviar.configure(state="normal", text="Reintentar Entrega")
 
 
