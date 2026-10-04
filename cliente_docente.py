@@ -8,7 +8,8 @@ from datetime import datetime
 
 # --- CONFIGURACIÓN DE LA NUBE ---
 # Debe coincidir exactamente con la URL de tu servidor en Render
-URL_NUBE = ""
+URL_NUBE = "https://seep-buffer.onrender.com"
+
 # Variables globales para el contexto de la sesión
 MODULO_ACTIVO = ""
 CARPETA_ENTREGAS = ""

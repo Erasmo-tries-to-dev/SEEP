@@ -7,8 +7,7 @@ import customtkinter as ctk
 from tkinter import filedialog
 
 # --- CONFIGURACIÓN DE LA NUBE ---
-# Reemplazá esta URL por la que te asigne Render cuando subas el SEEP-Buffer
-URL_NUBE = ""
+URL_NUBE = "https://seep-buffer.onrender.com/entregar"
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
