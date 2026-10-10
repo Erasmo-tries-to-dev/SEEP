@@ -31,7 +31,8 @@ class AppAlumno(ctk.CTk):
     def __init__(self):
         """
         Inicializa la ventana principal, define sus dimensiones y construye
-        todos los elementos visuales (etiquetas, campos de texto y botones).
+        todos los elementos visuales (etiquetas, campos de texto y botones)
+        mediante generación dinámica.
         """
         super().__init__()
         logging.info("Iniciando aplicación Cliente Alumno SEEP.")
@@ -41,6 +42,7 @@ class AppAlumno(ctk.CTk):
         self.resizable(False, False)
 
         self.ruta_archivo = None
+        self.entradas = {}  # Diccionario para guardar referencias a los CTkEntry
 
         self.lbl_titulo = ctk.CTkLabel(
             self, text="Entrega de Parcial", font=("Roboto", 24, "bold")
@@ -50,44 +52,59 @@ class AppAlumno(ctk.CTk):
         self.frame_form = ctk.CTkFrame(self)
         self.frame_form.pack(pady=10, padx=20, fill="both")
 
-        self.lbl_ip = ctk.CTkLabel(self.frame_form, text="IP:", anchor="w")
-        self.lbl_ip.pack(pady=(15, 0), padx=20, fill="x")
-        self.entry_ip = ctk.CTkEntry(
-            self.frame_form, placeholder_text="Ej: Ver pizarrón o preguntar a docente"
-        )
-        self.entry_ip.pack(pady=(5, 10), padx=20, fill="x")
+        # ---------------------------------------------------------
+        # REFACTOR: Generación dinámica de los campos del formulario
+        # ---------------------------------------------------------
+        campos_formulario = [
+            {
+                "id": "ip",
+                "label": "IP:",
+                "placeholder": "Ej: Ver pizarrón o preguntar a docente",
+                "is_password": False,
+            },
+            {
+                "id": "pin",
+                "label": "PIN de Seguridad:",
+                "placeholder": "Ingrese el PIN",
+                "is_password": True,
+            },
+            {
+                "id": "apellidos",
+                "label": "Apellidos:",
+                "placeholder": "Pérez García",
+                "is_password": False,
+            },
+            {
+                "id": "nombres",
+                "label": "Nombres:",
+                "placeholder": "Juan Martín",
+                "is_password": False,
+            },
+            {
+                "id": "identificador",
+                "label": "Legajo o DNI:",
+                "placeholder": "Ej: 12345/6 o 40123456",
+                "is_password": False,
+            },
+        ]
 
-        self.lbl_pin = ctk.CTkLabel(
-            self.frame_form, text="PIN de Seguridad:", anchor="w"
-        )
-        self.lbl_pin.pack(pady=0, padx=20, fill="x")
-        self.entry_pin = ctk.CTkEntry(
-            self.frame_form, placeholder_text="Ingrese el PIN", show="*"
-        )
-        self.entry_pin.pack(pady=(5, 10), padx=20, fill="x")
+        for i, campo in enumerate(campos_formulario):
+            # El primer label tiene un margen superior un poco más grande
+            pad_top = 15 if i == 0 else 0
 
-        self.lbl_apellidos = ctk.CTkLabel(
-            self.frame_form, text="Apellidos:", anchor="w"
-        )
-        self.lbl_apellidos.pack(pady=0, padx=20, fill="x")
-        self.entry_apellidos = ctk.CTkEntry(
-            self.frame_form, placeholder_text="Pérez García"
-        )
-        self.entry_apellidos.pack(pady=(5, 10), padx=20, fill="x")
+            lbl = ctk.CTkLabel(self.frame_form, text=campo["label"], anchor="w")
+            lbl.pack(pady=(pad_top, 0), padx=20, fill="x")
 
-        self.lbl_nombres = ctk.CTkLabel(self.frame_form, text="Nombres:", anchor="w")
-        self.lbl_nombres.pack(pady=0, padx=20, fill="x")
-        self.entry_nombres = ctk.CTkEntry(
-            self.frame_form, placeholder_text="Juan Martín"
-        )
-        self.entry_nombres.pack(pady=(5, 10), padx=20, fill="x")
+            entry = ctk.CTkEntry(
+                self.frame_form,
+                placeholder_text=campo["placeholder"],
+                show="*" if campo["is_password"] else "",
+            )
+            entry.pack(pady=(5, 10), padx=20, fill="x")
 
-        self.lbl_id = ctk.CTkLabel(self.frame_form, text="Legajo o DNI:", anchor="w")
-        self.lbl_id.pack(pady=0, padx=20, fill="x")
-        self.entry_id = ctk.CTkEntry(
-            self.frame_form, placeholder_text="Ej: 12345/6 o 40123456"
-        )
-        self.entry_id.pack(pady=(5, 10), padx=20, fill="x")
+            # Guardamos la referencia para poder extraer el texto después
+            self.entradas[campo["id"]] = entry
+        # ---------------------------------------------------------
 
         self.lbl_modulo = ctk.CTkLabel(
             self.frame_form, text="Módulo a rendir:", anchor="w"
@@ -215,11 +232,12 @@ class AppAlumno(ctk.CTk):
         Bloquea la interfaz temporalmente y lanza un hilo secundario
         para gestionar la comunicación de red sin congelar la ventana.
         """
-        ip = self.entry_ip.get().strip()
-        pin = self.entry_pin.get().strip()
-        apellidos = self.entry_apellidos.get().strip()
-        nombres = self.entry_nombres.get().strip()
-        identificador = self.entry_id.get().strip()
+        # Extraemos dinámicamente los valores usando nuestro diccionario 'entradas'
+        ip = self.entradas["ip"].get().strip()
+        pin = self.entradas["pin"].get().strip()
+        apellidos = self.entradas["apellidos"].get().strip()
+        nombres = self.entradas["nombres"].get().strip()
+        identificador = self.entradas["identificador"].get().strip()
 
         if not all([ip, pin, apellidos, nombres, identificador]):
             self.mostrar_estado("Error: Completá todos los campos", "#e74c3c")
