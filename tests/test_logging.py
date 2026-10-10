@@ -15,7 +15,6 @@ def test_servidor_loggea_pin_incorrecto(cliente_pruebas, caplog):
         "nombres": "Alan",
         "identificador": "999",
         "pin": "PIN_TOTALMENTE_FALSO",
-        # SOLUCIÓN 1: Usar io.BytesIO para que Flask lo reconozca como archivo real
         "file": (io.BytesIO(b"codigo"), "examen.pas"),
     }
 
@@ -28,19 +27,27 @@ def test_servidor_loggea_pin_incorrecto(cliente_pruebas, caplog):
     assert "PIN incorrecto ingresado" in caplog.text
 
 
-def test_cliente_crea_archivo_log_fisico():
+def test_cliente_loggea_errores_en_archivo_fisico():
     """
-    Verifica que la configuración del cliente efectivamente haya
-    creado el archivo seep_cliente.log en el disco.
+    Verifica que la lógica del cliente efectivamente escriba los
+    eventos y advertencias reales de la interfaz en el log físico.
     """
-    # Borramos el archivo si ya existía de pruebas anteriores
     if os.path.exists("seep_cliente.log"):
         os.remove("seep_cliente.log")
 
-    # Importamos el cliente y forzamos un mensaje de log para simular actividad,
-    # ya que al importarlo no arranca la interfaz gráfica automáticamente.
-    comando = "import cliente_alumno; cliente_alumno.logging.info('Prueba de escritura de log')"
-    subprocess.run([sys.executable, "-c", comando], capture_output=True)
+    # Armamos un script que simula el comportamiento de la interfaz
+    script = """
+import cliente_alumno
+
+# 1. Al crear la app, el __init__ debe loggear automáticamente "Iniciando aplicación..."
+app = cliente_alumno.AppAlumno()
+
+# 2. Simulamos que el alumno intentó subir un archivo prohibido
+app.marcar_error_archivo("Simulación: El archivo pesa más de 1MB")
+"""
+
+    # Ejecutamos el script aislando a Tkinter y pytest para que no interfieran
+    subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
 
     assert os.path.exists(
         "seep_cliente.log"
@@ -49,5 +56,11 @@ def test_cliente_crea_archivo_log_fisico():
     with open("seep_cliente.log", "r", encoding="utf-8") as f:
         contenido = f.read()
 
-    assert len(contenido) > 0, "El archivo log se creó pero está vacío."
-    assert "Prueba de escritura de log" in contenido, "El log no registró el mensaje."
+    # Verificamos que los logs reales de negocio del cliente estén en el archivo
+    assert (
+        "Iniciando aplicación Cliente Alumno SEEP." in contenido
+    ), "Falta el log de inicialización."
+    assert (
+        "Validación de archivo fallida: Simulación: El archivo pesa más de 1MB"
+        in contenido
+    ), "Falta el log del error de validación."
