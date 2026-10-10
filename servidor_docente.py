@@ -194,11 +194,14 @@ def upload():
     apellidos_seguro = limpiar_cadena(apellidos)
     nombres_seguro = limpiar_cadena(nombres)
     id_seguro = limpiar_cadena(identificador)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    hora_legible = datetime.now().strftime("%H:%M:%S")
+    # Guardamos el momento exacto una sola vez para que nombre y CSV coincidan (Resuelve B7)
+    momento_entrega = datetime.now()
+
+    # Agregamos milisegundos (%f) al timestamp para evitar sobrescrituras (Resuelve B1)
+    timestamp = momento_entrega.strftime("%Y%m%d_%H%M%S_%f")
+    hora_legible = momento_entrega.strftime("%H:%M:%S")
 
     # Fuerzo el nombre final del archivo para evitar errores de los alumnos como poner el nombre primero.
-    # Esta de mas decir que es un nombre muy largo, despues podemos ver que es lo que realmente interesa guardar.
     carpeta_destino = app.config["CARPETA_ENTREGAS"]
     nombre_final = (
         f"{apellidos_seguro}_{nombres_seguro}_{id_seguro}_{timestamp}{ext_guardado}"
@@ -208,7 +211,6 @@ def upload():
     hash_archivo = calcular_hash(archivo)
 
     archivo.save(ruta_guardado)
-
     # Aca tambien quizas sean demasiados datos, por ahora los deje asi, luego podemos ver los mas interesantes para guardar en el csv.
     datos_auditoria = [
         hora_legible,
