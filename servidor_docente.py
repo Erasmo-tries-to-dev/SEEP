@@ -140,19 +140,22 @@ def validar_extension(nombre_archivo, modulo):
     Verifica que el archivo entregado tenga la extensión correcta según el módulo evaluado.
     Retorna una tupla: (es_valido, extension_o_mensaje_de_error).
     """
+    # Convertimos a minúsculas para evitar inconsistencias (Resuelve B5)
+    nombre_lower = nombre_archivo.lower()
+
     if modulo == "imperativo":
-        if not nombre_archivo.endswith(".pas"):
+        if not nombre_lower.endswith(".pas"):
             return False, "Módulo Imperativo: Solo se permiten archivos .pas"
         return True, ".pas"
 
     elif modulo == "objetos":
-        if not nombre_archivo.endswith(".zip"):
+        if not nombre_lower.endswith(".zip"):
             return False, "Módulo Objetos: Solo se permiten archivos .zip"
         return True, ".zip"
 
     elif modulo == "concurrente":
-        # Concurrente es un tema, porque los archivos que genera R-info no tienen extension. Asi que valido que no tenga extension.
-        if "." in nombre_archivo:
+        # Concurrente es un tema, porque los archivos que genera R-info no tienen extension.
+        if "." in nombre_lower:
             return (
                 False,
                 "Módulo Concurrente: Seleccioná el archivo generado por R-Info (sin extensión)",
