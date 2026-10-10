@@ -71,30 +71,42 @@ def registrar_en_csv(datos_fila):
     y separador de punto y coma para asegurar la correcta lectura de acentos y columnas
     al abrirse directamente con el software de hojas de cálculo de los docentes.
     """
-    nombre_archivo_csv = f"registro_entregas_{app.config['MODULO']}.csv"
+    nombre_archivo_csv = app.config.get(
+        "ARCHIVO_CSV", f"registro_entregas_{app.config['MODULO']}.csv"
+    )
 
     with csv_lock:
         archivo_existe = os.path.isfile(nombre_archivo_csv)
 
-        with open(nombre_archivo_csv, mode="a", newline="", encoding="utf-8-sig") as f:
-            writer = csv.writer(f, delimiter=";")
+        try:
+            with open(
+                nombre_archivo_csv, mode="a", newline="", encoding="utf-8-sig"
+            ) as f:
+                writer = csv.writer(f, delimiter=";")
 
-            if not archivo_existe:
-                writer.writerow(
-                    [
-                        "Hora",
-                        "Módulo",
-                        "Legajo/DNI",
-                        "Apellidos",
-                        "Nombres",
-                        "IP Origen",
-                        "Hostname",
-                        "Hash SHA-256",
-                        "Nombre de Archivo",
-                    ]
-                )
+                if not archivo_existe:
+                    writer.writerow(
+                        [
+                            "Hora",
+                            "Módulo",
+                            "Legajo/DNI",
+                            "Apellidos",
+                            "Nombres",
+                            "IP Origen",
+                            "Hostname",
+                            "Hash SHA-256",
+                            "Nombre de Archivo",
+                        ]
+                    )
 
-            writer.writerow(datos_fila)
+                writer.writerow(datos_fila)
+        # Este except busca resolver B2, probablemente no haga falta en un futuro cuando se implemente la interfaz grafica, pero por ahora lo dejo.
+        except PermissionError:
+            # Si Excel tiene abierto el archivo, no crasheamos.
+            # El archivo .pas ya se guardó en disco, solo perdemos esta fila del log.
+            print(
+                f"[!] ADVERTENCIA: No se pudo escribir en el CSV porque está abierto en otro programa."
+            )
 
 
 def configurar_modulo():
@@ -194,15 +206,15 @@ def upload():
     apellidos_seguro = limpiar_cadena(apellidos)
     nombres_seguro = limpiar_cadena(nombres)
     id_seguro = limpiar_cadena(identificador)
-    # Guardamos el momento exacto una sola vez para que nombre y CSV coincidan (Resuelve B7)
+    # Guarda momento exacto una sola vez para que nombre y CSV coincidan (Resuelve B7)
     momento_entrega = datetime.now()
 
-    # Agregamos milisegundos (%f) al timestamp para evitar sobrescrituras (Resuelve B1)
+    # Agrega milisegundos (%f) al timestamp para evitar sobrescrituras (Resuelve B1)
     timestamp = momento_entrega.strftime("%Y%m%d_%H%M%S_%f")
     hora_legible = momento_entrega.strftime("%H:%M:%S")
 
-    # Fuerzo el nombre final del archivo para evitar errores de los alumnos como poner el nombre primero.
     carpeta_destino = app.config["CARPETA_ENTREGAS"]
+    # Fuerzo el nombre final del archivo para evitar errores de los alumnos como poner el nombre primero.
     nombre_final = (
         f"{apellidos_seguro}_{nombres_seguro}_{id_seguro}_{timestamp}{ext_guardado}"
     )
