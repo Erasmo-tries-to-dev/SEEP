@@ -17,6 +17,7 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
 - **(B2) Test de Tolerancia a Fallos CSV:** Se implementó `test_csv.py` para simular el bloqueo del archivo de registro a nivel de sistema operativo, garantizando que una entrega no se pierda si el docente tiene el archivo abierto.
 - **(B3, B4) Pruebas de Interfaz Gráfica (Cliente):** Se implementó la suite `test_cliente.py` utilizando `unittest.mock` para simular fallos de red y errores HTTP 500. Se realizan aserciones visuales sobre los componentes de Tkinter para garantizar que la interfaz notifique al alumno correctamente sin colgarse.
 - **(B5) Validación de Extensiones:** Se añadió `tests/test_extensiones.py` para garantizar mediante peticiones simuladas que el servidor acepte extensiones válidas independientemente de su capitalización (ej. `.PAS` vs `.pas`).
+- **(B6) Test de Excepciones del Servidor:** Se agregó `tests/test_excepciones.py`, utilizando `unittest.mock.patch` para simular un fallo crítico del sistema operativo (como un disco lleno mediante `OSError`), garantizando que la API siempre responda con un JSON estructurado en lugar de colapsar devolviendo un HTML.
 
 ### 🐛 Errores Solucionados (Fixed)
 
@@ -26,3 +27,4 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
 - **(B3) Error silencioso en interfaz gráfica:** Se resolvió un `NameError` asincrónico capturando el texto de la excepción e inyectándolo directamente en el _scope_ de las funciones `lambda` de Tkinter.
 - **(B4) Caída por error HTTP 500:** Se implementó un bloque `try-except ValueError` al decodificar las respuestas del servidor. Si el servidor falla y devuelve un HTML de error genérico en lugar de un JSON, el cliente ahora lo maneja de forma segura y notifica al alumno.
 - **(B5) Inconsistencia en extensiones (Mayúsculas/Minúsculas):** Se corrigió la validación en el servidor aplicando `.lower()` al nombre del archivo antes de evaluarlo. Esto alinea el comportamiento del servidor con el del cliente y permite a los alumnos entregar archivos guardados como `EXAMEN.PAS` o `tp.ZIP` sin ser rechazados.
+- **(B6) Manejo de errores internos del servidor:** Se envolvió la lógica crítica de la ruta `/upload` en un bloque `try-except Exception`. Cualquier error interno del servidor (disco lleno, permisos, etc.) ahora es capturado y reportado al cliente mediante un JSON limpio con un código HTTP 500, en lugar de retornar la plantilla HTML de error por defecto de Flask.

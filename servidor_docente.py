@@ -225,30 +225,35 @@ def upload():
 
     hash_archivo = calcular_hash(archivo)
 
-    archivo.save(ruta_guardado)
-    # Aca tambien quizas sean demasiados datos, por ahora los deje asi, luego podemos ver los mas interesantes para guardar en el csv.
-    datos_auditoria = [
-        hora_legible,
-        modulo_activo,
-        identificador,
-        apellidos,
-        nombres,
-        ip_cliente,
-        hostname_cliente,
-        hash_archivo,
-        nombre_final,
-    ]
-    registrar_en_csv(datos_auditoria)
+    try:
+        archivo.save(ruta_guardado)
 
-    # Se imprime en pantalla para poder ver la entrega en tiempo real. (En un futuro habra una interfaz grafica)
-    print(
-        f"[+] Nueva entrega: {apellidos} {nombres} | a las {hora_legible} | DNI/Legajo: {id_seguro}   | PC: {hostname_cliente} | IP: {ip_cliente}"
-    )
+        datos_auditoria = [
+            hora_legible,
+            modulo_activo,
+            identificador,
+            apellidos,
+            nombres,
+            ip_cliente,
+            hostname_cliente,
+            hash_archivo,
+            nombre_final,
+        ]
+        registrar_en_csv(datos_auditoria)
 
-    return (
-        jsonify({"mensaje": f"Parcial de {modulo_activo} entregado exitosamente"}),
-        200,
-    )
+        print(
+            f"[+] Nueva entrega: {apellidos} {nombres} | a las {hora_legible} | DNI/Legajo: {id_seguro}   | PC: {hostname_cliente} | IP: {ip_cliente}"
+        )
+
+        return (
+            jsonify({"mensaje": f"Parcial de {modulo_activo} entregado exitosamente"}),
+            200,
+        )
+
+    except Exception as e:
+        print(f"[-] ERROR GRAVE guardando entrega de {apellidos}: {str(e)}")
+        # Atajamos el error y devolvemos un JSON limpio (Resuelve B6)
+        return jsonify({"error": f"Error interno al guardar: {str(e)}"}), 500
 
 
 if __name__ == "__main__":
