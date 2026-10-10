@@ -6,12 +6,17 @@ import csv
 import logging
 from datetime import datetime
 import threading
+import sys
 
-# Configuración de Logging para el servidor
+# Configuración de Logging para el servidor (Consola + Archivo físico)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%H:%M:%S",
+    handlers=[
+        logging.FileHandler("seep_servidor.log", encoding="utf-8"),  # Guarda en archivo
+        logging.StreamHandler(sys.stdout),  # Muestra en consola
+    ],
 )
 
 # Waitress es un servidor de produccion
