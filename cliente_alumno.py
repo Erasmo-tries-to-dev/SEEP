@@ -1,6 +1,7 @@
 import os
 import threading
 import requests
+import queue
 
 # CustomTkinter es un fork de Tkinter que me permite hacer una interfaz grafica relativamente agradable.
 # Me resulto la opcion mas sencilla para una interfaz simple como esta.
@@ -117,6 +118,18 @@ class AppAlumno(ctk.CTk):
             command=self.iniciar_entrega,
         )
         self.btn_enviar.pack(pady=(5, 20), padx=40, fill="x")
+        self.cola_mensajes = queue.Queue()
+        self.procesar_cola()
+
+    def procesar_cola(self):
+        """Revisa si hay actualizaciones pendientes de otros hilos y las dibuja de forma segura."""
+        try:
+            while True:
+                tarea = self.cola_mensajes.get_nowait()
+                tarea()
+        except queue.Empty:
+            pass
+        self.after(100, self.procesar_cola)  # Vuelve a revisar en 100ms
 
     def al_cambiar_modulo(self, _):
         """
@@ -184,7 +197,7 @@ class AppAlumno(ctk.CTk):
 
             self.ruta_archivo = ruta
             self.lbl_archivo_seleccionado.configure(
-                text=f"📁 {nombre_archivo}", text_color="white"
+                text=f"📁 {nombre_archivo}",  # ya no toma mas text_color = "white" (b8)
             )
             self.mostrar_estado("", "gray")
 
@@ -240,7 +253,7 @@ class AppAlumno(ctk.CTk):
         Función ejecutada en segundo plano. Verifica la conexión inicial con el
         servidor docente y, de ser exitosa, transmite los datos del estudiante,
         el hostname local y el archivo en formato multipart/form-data.
-        Utiliza self.after() para actualizar la GUI principal de manera segura.
+        Utiliza self.cola_mensajes para actualizar la GUI principal de manera segura.
         """
         url_ping = f"http://{ip}:5000/ping"
         url_upload = f"http://{ip}:5000/upload"
@@ -263,10 +276,12 @@ class AppAlumno(ctk.CTk):
                 )
 
                 if respuesta.status_code == 200:
-                    self.after(
-                        0, lambda: self.mostrar_estado("✅ Entrega exitosa.", "#2ecc71")
+                    self.cola_mensajes.put(
+                        lambda: self.mostrar_estado("✅ Entrega exitosa.", "#2ecc71")
                     )
-                    self.after(0, lambda: self.btn_enviar.configure(text="Entregado"))
+                    self.cola_mensajes.put(
+                        lambda: self.btn_enviar.configure(text="Entregado")
+                    )
                 else:
                     # [PARCHE B4]: Intentar decodificar JSON, si falla (ej. HTML 500), capturar el error HTTP
                     try:
@@ -279,41 +294,37 @@ class AppAlumno(ctk.CTk):
                         )
 
                     # Se inyecta la variable en el scope del lambda (m=texto_error)
-                    self.after(
-                        0,
+                    self.cola_mensajes.put(
                         lambda m=texto_error: self.mostrar_estado(
                             f"❌ Error: {m}", "#e74c3c"
-                        ),
+                        )
                     )
-                    self.after(0, self.reactivar_boton)
+                    self.cola_mensajes.put(self.reactivar_boton)
 
         except requests.exceptions.Timeout:
-            self.after(
-                0,
+            self.cola_mensajes.put(
                 lambda: self.mostrar_estado(
                     "❌ Tiempo de espera agotado. Verificá la IP.", "#e74c3c"
-                ),
+                )
             )
-            self.after(0, self.reactivar_boton)
+            self.cola_mensajes.put(self.reactivar_boton)
         except requests.exceptions.ConnectionError:
-            self.after(
-                0,
+            self.cola_mensajes.put(
                 lambda: self.mostrar_estado(
                     "❌ No se pudo conectar. Verificá la IP.", "#e74c3c"
-                ),
+                )
             )
-            self.after(0, self.reactivar_boton)
+            self.cola_mensajes.put(self.reactivar_boton)
         except Exception as e:
             # [PARCHE B3]: Capturamos el texto del error antes de que Python borre la variable 'e'
             mensaje_error = str(e)
-            self.after(
-                0,
+            self.cola_mensajes.put(
                 # Inyectamos el string en el lambda para evitar el NameError asincrónico
                 lambda m=mensaje_error: self.mostrar_estado(
                     f"❌ Error inesperado: {m}", "#e74c3c"
-                ),
+                )
             )
-            self.after(0, self.reactivar_boton)
+            self.cola_mensajes.put(self.reactivar_boton)
 
     def reactivar_boton(self):
         """
