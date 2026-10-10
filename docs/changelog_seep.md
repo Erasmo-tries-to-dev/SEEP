@@ -38,3 +38,7 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
   - Se unificó la lógica de `validar_extension()`, resolviendo divergencias futuras.
   - Se extrajeron las constantes de red (`PUERTO_API`, `TIMEOUT_PING`, `TIMEOUT_UPLOAD`).
   - Se centralizó el límite de tamaño de archivo (`MAX_TAMANO_MB`), y ahora el servidor también lo hace cumplir estrictamente utilizando `app.config["MAX_CONTENT_LENGTH"]`, previniendo ataques de saturación de disco.
+
+### ✨ Añadido
+
+- **Auditoría y Logging:** Se reemplazaron los prints efímeros por la librería estándar `logging`. El servidor ahora registra intentos fallidos y errores graves con niveles apropiados (INFO, WARNING, ERROR). El cliente genera un archivo persistente (`seep_cliente.log`) en la PC del alumno para facilitar el diagnóstico post-examen en caso de fallos de red o de sistema. Se agregaron tests automatizados para validar este comportamiento.
