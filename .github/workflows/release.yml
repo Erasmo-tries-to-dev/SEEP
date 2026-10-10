@@ -1,48 +1,54 @@
-name: Build y Release SEEP
+name: Build and Release SEEP
 
+# Se ejecuta automáticamente cada vez que creás un Tag en Git (ej: v1.0)
 on:
   push:
     tags:
       - "v*"
 
 jobs:
-  build-windows:
+  build:
     runs-on: windows-latest
 
     steps:
-      - name: Clonar repositorio
+      - name: Descargar código fuente
         uses: actions/checkout@v4
 
-      - name: Configurar Python
+      - name: Instalar Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Instalar dependencias con Poetry
+      - name: Instalar dependencias (Poetry)
         run: |
+          python -m pip install --upgrade pip
           pip install poetry
           poetry install
 
-      - name: Construir Ejecutables con PyInstaller
+      - name: Compilar con PyInstaller (Modo Directorio para evitar Antivirus)
         run: |
-          # Cliente Alumno (sin consola de fondo)
-          poetry run pyinstaller --onefile --noconsole --name cliente_alumno cliente_alumno.py
-          # Servidor Docente (con consola)
-          poetry run pyinstaller --onefile --name servidor_docente servidor_docente.py
+          # Compilamos en modo directorio (--onedir) y sin consola negra para el cliente
+          poetry run pyinstaller --noconfirm --onedir --windowed --name "SEEP_Cliente" cliente_alumno.py
 
-      - name: Generar Hashes SHA-256 de los ejecutables
+          # Compilamos el servidor
+          poetry run pyinstaller --noconfirm --onedir --name "SEEP_Servidor" servidor_docente_2.py
+
+      - name: Empaquetar en ZIP
         run: |
-          cd dist
-          Get-FileHash cliente_alumno.exe -Algorithm SHA256 > hashes.txt
-          Get-FileHash servidor_docente.exe -Algorithm SHA256 >> hashes.txt
-          cd ..
+          # Comprimimos las carpetas generadas para distribución
+          Compress-Archive -Path dist/SEEP_Cliente -DestinationPath SEEP_Cliente.zip
+          Compress-Archive -Path dist/SEEP_Servidor -DestinationPath SEEP_Servidor.zip
+
+      - name: Generar Hashes SHA-256
+        run: |
+          Get-FileHash SEEP_Cliente.zip, SEEP_Servidor.zip -Algorithm SHA256 > hashes.txt
 
       - name: Publicar Release en GitHub
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/cliente_alumno.exe
-            dist/servidor_docente.exe
-            dist/hashes.txt
+            SEEP_Cliente.zip
+            SEEP_Servidor.zip
+            hashes.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
