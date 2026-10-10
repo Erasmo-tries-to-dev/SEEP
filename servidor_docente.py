@@ -6,11 +6,12 @@ import csv
 from datetime import datetime
 import threading
 
-# Waitress es un servidor de produccion, lo elegi porque reemplazar el servidor de desarrollo de flask por este fue muy muy sencillo
-# Por supuesto podemos explorar alternativas, pero por lo que lei parece muy solido.
-# Link a la documentacion: https://docs.pylonsproject.org/projects/waitress/en/stable/
+# Waitress es un servidor de produccion
 from waitress import serve
 from flask import Flask, request, jsonify, current_app
+
+# Importamos nuestra nueva Única Fuente de Verdad compartida
+import seep_config
 
 csv_lock = threading.Lock()
 
@@ -47,7 +48,6 @@ def calcular_hash(archivo):
 
 def registrar_en_csv(datos_fila):
     """Guarda los datos de la entrega en un archivo CSV."""
-    # Usamos current_app en lugar de la variable global 'app'
     nombre_archivo_csv = current_app.config.get(
         "ARCHIVO_CSV", f"registro_entregas_{current_app.config['MODULO']}.csv"
     )
@@ -102,33 +102,9 @@ def configurar_modulo():
             print("Opción inválida. Ingrese 1, 2 o 3.")
 
 
-def validar_extension(nombre_archivo, modulo):
-    """Verifica que el archivo entregado tenga la extensión correcta."""
-    nombre_lower = nombre_archivo.lower()
-
-    if modulo == "imperativo":
-        if not nombre_lower.endswith(".pas"):
-            return False, "Módulo Imperativo: Solo se permiten archivos .pas"
-        return True, ".pas"
-    elif modulo == "objetos":
-        if not nombre_lower.endswith(".zip"):
-            return False, "Módulo Objetos: Solo se permiten archivos .zip"
-        return True, ".zip"
-    elif modulo == "concurrente":
-        if "." in nombre_lower:
-            return (
-                False,
-                "Módulo Concurrente: Seleccioná el archivo generado por R-Info (sin extensión)",
-            )
-        return True, ""
-
-    return False, "Módulo desconocido"
-
-
 def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
     """
     Application Factory: Crea y configura una instancia de la aplicación Flask.
-    Esto elimina el estado global y permite testing limpio.
     """
     app = Flask(__name__)
 
@@ -138,6 +114,9 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
     app.config["CARPETA_ENTREGAS"] = (
         carpeta_elegida if carpeta_elegida else f"entregas_{modulo_elegido}"
     )
+
+    # Rechazamos archivos más grandes que el límite establecido en la configuración compartida
+    app.config["MAX_CONTENT_LENGTH"] = seep_config.MAX_TAMANO_BYTES
 
     os.makedirs(app.config["CARPETA_ENTREGAS"], exist_ok=True)
 
@@ -159,14 +138,14 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
         if not all([pin_recibido, apellidos, nombres, identificador, archivo]):
             return jsonify({"error": "Faltan datos requeridos"}), 400
 
-        # Ahora el PIN se lee de la configuración segura de Flask
         if pin_recibido != current_app.config["PIN"]:
             return jsonify({"error": "PIN incorrecto"}), 403
 
         modulo_activo = current_app.config["MODULO"]
         nombre_original = archivo.filename
 
-        es_valido, resultado_validacion = validar_extension(
+        # Delegamos la validación a seep_config
+        es_valido, resultado_validacion = seep_config.validar_extension(
             nombre_original, modulo_activo
         )
         if not es_valido:
@@ -221,7 +200,6 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
 if __name__ == "__main__":
     modulo_elegido, carpeta_elegida = configurar_modulo()
 
-    # Creamos la app de forma profesional
     app = crear_app(modulo_elegido=modulo_elegido, carpeta_elegida=carpeta_elegida)
 
     ip_local = obtener_ip_local()
@@ -239,4 +217,5 @@ if __name__ == "__main__":
     print("=" * 60)
     print("SEEP - ESPERANDO EXÁMENES...\n")
 
-    serve(app, host="0.0.0.0", port=5000)
+    # Inicia el servidor usando el puerto de la configuración unificada
+    serve(app, host="0.0.0.0", port=seep_config.PUERTO_API)

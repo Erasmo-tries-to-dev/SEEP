@@ -34,3 +34,7 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
 ### ♻️ Refactorización (Refactor)
 
 - **Estado Global y Application Factory:** Se eliminó el estado global (`PIN_ACTUAL` y configuración de módulo en `__main__`) en `servidor_docente.py`. Se implementó el patrón _Application Factory_ (`crear_app()`) de Flask, encapsulando la configuración y permitiendo importar y testear el servidor de forma aislada y profesional sin efectos secundarios. Se actualizaron todos los tests y el fixture `cliente_pruebas` para soportar esta nueva arquitectura.
+- **Módulo Compartido (Single Source of Truth):** Se creó el archivo `seep_config.py` para centralizar la configuración compartida entre el cliente y el servidor aplicando el principio DRY (Don't Repeat Yourself).
+  - Se unificó la lógica de `validar_extension()`, resolviendo divergencias futuras.
+  - Se extrajeron las constantes de red (`PUERTO_API`, `TIMEOUT_PING`, `TIMEOUT_UPLOAD`).
+  - Se centralizó el límite de tamaño de archivo (`MAX_TAMANO_MB`), y ahora el servidor también lo hace cumplir estrictamente utilizando `app.config["MAX_CONTENT_LENGTH"]`, previniendo ataques de saturación de disco.

@@ -2,12 +2,14 @@ import os
 import threading
 import requests
 import queue
+import socket
+
+# Importamos nuestra nueva Única Fuente de Verdad
+import seep_config
 
 # CustomTkinter es un fork de Tkinter que me permite hacer una interfaz grafica relativamente agradable.
-# Me resulto la opcion mas sencilla para una interfaz simple como esta.
 import customtkinter as ctk
 from tkinter import filedialog
-import socket
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -129,7 +131,7 @@ class AppAlumno(ctk.CTk):
                 tarea()
         except queue.Empty:
             pass
-        self.after(100, self.procesar_cola)  # Vuelve a revisar en 100ms
+        self.after(100, self.procesar_cola)
 
     def al_cambiar_modulo(self, _):
         """
@@ -145,23 +147,17 @@ class AppAlumno(ctk.CTk):
     def seleccionar_archivo(self):
         """
         Abre el explorador de archivos nativo de Windows filtrando por la extensión
-        correspondiente al módulo seleccionado. Realiza validaciones de extensión
-        y de peso máximo (1 MB) antes de aceptar el archivo.
+        correspondiente al módulo seleccionado. Realiza validaciones delegadas a seep_config.
         """
-        # Un parcial de imperativo de los que tomamos en el turno F pesa unos 38 kb.
-        # El parcial de objetos deberia ser el mas pesado de los 3 modulos, pero como referencia el archivo TPProyectoAlumnos.zip subido a ideas pesa tan solo 85 kb.
-        # Entonces 1 MB parece un limite suficiente, quizas incluso muy generoso y convenga bajarlo en un futuro.
-
         modulo_seleccionado = self.combo_modulo.get()
 
+        # Mantenemos los filtros visuales para el explorador de Windows
         if modulo_seleccionado == "Imperativo":
             tipos_archivo = [("Archivos Pascal", "*.pas")]
         elif modulo_seleccionado == "Objetos":
             tipos_archivo = [("Archivos ZIP", "*.zip")]
         else:
-            tipos_archivo = [
-                ("Todos los archivos", "*.*")
-            ]  # Concurrente no tiene extension, asi que no puedo filtrar por extension.
+            tipos_archivo = [("Todos los archivos", "*.*")]
 
         ruta = filedialog.askopenfilename(
             title="Seleccionar parcial",
@@ -171,33 +167,24 @@ class AppAlumno(ctk.CTk):
         if ruta:
             nombre_archivo = os.path.basename(ruta)
 
-            if (
-                modulo_seleccionado == "Imperativo"
-                and not nombre_archivo.lower().endswith(".pas")
-            ):
-                self.marcar_error_archivo("Error: El archivo debe ser .pas")
-                return
-            elif (
-                modulo_seleccionado == "Objetos"
-                and not nombre_archivo.lower().endswith(".zip")
-            ):
-                self.marcar_error_archivo("Error: El archivo debe ser .zip")
-                return
-            elif (
-                modulo_seleccionado == "Concurrente" and "." in nombre_archivo
-            ):  # De igual manera aca valido que no tenga extension.
+            # Validamos el peso del archivo consultando al módulo compartido
+            if os.path.getsize(ruta) > seep_config.MAX_TAMANO_BYTES:
                 self.marcar_error_archivo(
-                    "Error: Seleccioná el archivo de R-Info (sin extensión)"
+                    f"Error: El archivo pesa más de {seep_config.MAX_TAMANO_MB}MB"
                 )
                 return
 
-            if os.path.getsize(ruta) > 1048576:
-                self.marcar_error_archivo("Error: El archivo pesa más de 1MB")
+            # Validamos la extensión consultando al módulo compartido
+            es_valido, resultado = seep_config.validar_extension(
+                nombre_archivo, modulo_seleccionado
+            )
+            if not es_valido:
+                self.marcar_error_archivo(resultado)
                 return
 
             self.ruta_archivo = ruta
             self.lbl_archivo_seleccionado.configure(
-                text=f"📁 {nombre_archivo}",  # ya no toma mas text_color = "white" (b8)
+                text=f"📁 {nombre_archivo}",
             )
             self.mostrar_estado("", "gray")
 
@@ -250,16 +237,14 @@ class AppAlumno(ctk.CTk):
 
     def enviar_red(self, ip, pin, apellidos, nombres, identificador, ruta):
         """
-        Función ejecutada en segundo plano. Verifica la conexión inicial con el
-        servidor docente y, de ser exitosa, transmite los datos del estudiante,
-        el hostname local y el archivo en formato multipart/form-data.
-        Utiliza self.cola_mensajes para actualizar la GUI principal de manera segura.
+        Función ejecutada en segundo plano. Utiliza seep_config para los
+        timeouts y puertos unificados, transmitiendo el examen al servidor.
         """
-        url_ping = f"http://{ip}:5000/ping"
-        url_upload = f"http://{ip}:5000/upload"
+        url_ping = f"http://{ip}:{seep_config.PUERTO_API}/ping"
+        url_upload = f"http://{ip}:{seep_config.PUERTO_API}/upload"
 
         try:
-            requests.get(url_ping, timeout=3)
+            requests.get(url_ping, timeout=seep_config.TIMEOUT_PING)
 
             with open(ruta, "rb") as f:
                 archivos = {"file": f}
@@ -272,7 +257,10 @@ class AppAlumno(ctk.CTk):
                 }
 
                 respuesta = requests.post(
-                    url_upload, data=datos, files=archivos, timeout=10
+                    url_upload,
+                    data=datos,
+                    files=archivos,
+                    timeout=seep_config.TIMEOUT_UPLOAD,
                 )
 
                 if respuesta.status_code == 200:
@@ -283,7 +271,6 @@ class AppAlumno(ctk.CTk):
                         lambda: self.btn_enviar.configure(text="Entregado")
                     )
                 else:
-                    # [PARCHE B4]: Intentar decodificar JSON, si falla (ej. HTML 500), capturar el error HTTP
                     try:
                         texto_error = respuesta.json().get(
                             "error", "Error en el servidor"
@@ -293,7 +280,6 @@ class AppAlumno(ctk.CTk):
                             f"Error crítico en servidor (HTTP {respuesta.status_code})"
                         )
 
-                    # Se inyecta la variable en el scope del lambda (m=texto_error)
                     self.cola_mensajes.put(
                         lambda m=texto_error: self.mostrar_estado(
                             f"❌ Error: {m}", "#e74c3c"
@@ -316,10 +302,8 @@ class AppAlumno(ctk.CTk):
             )
             self.cola_mensajes.put(self.reactivar_boton)
         except Exception as e:
-            # [PARCHE B3]: Capturamos el texto del error antes de que Python borre la variable 'e'
             mensaje_error = str(e)
             self.cola_mensajes.put(
-                # Inyectamos el string en el lambda para evitar el NameError asincrónico
                 lambda m=mensaje_error: self.mostrar_estado(
                     f"❌ Error inesperado: {m}", "#e74c3c"
                 )
