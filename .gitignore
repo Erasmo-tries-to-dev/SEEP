@@ -24,6 +24,7 @@ registro_entregas_imperativo.csv
 registro_entregas_objetos.csv
 registro_entregas_concurrente.csv
 *.csv
+*.log
 
 # Archivos de SO y editores
 .DS_Store
