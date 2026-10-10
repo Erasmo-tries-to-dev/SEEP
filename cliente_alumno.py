@@ -3,11 +3,17 @@ import threading
 import requests
 import queue
 import socket
+import logging
 
-# Importamos nuestra nueva Única Fuente de Verdad
+# Configuración del log físico para auditoría en la PC del alumno
+logging.basicConfig(
+    filename="seep_cliente.log",
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    encoding="utf-8",
+)
+
 import seep_config
-
-# CustomTkinter es un fork de Tkinter que me permite hacer una interfaz grafica relativamente agradable.
 import customtkinter as ctk
 from tkinter import filedialog
 
@@ -28,6 +34,7 @@ class AppAlumno(ctk.CTk):
         todos los elementos visuales (etiquetas, campos de texto y botones).
         """
         super().__init__()
+        logging.info("Iniciando aplicación Cliente Alumno SEEP.")
 
         self.title("SEEP - Taller de Programación")
         self.geometry("500x700")
@@ -54,7 +61,6 @@ class AppAlumno(ctk.CTk):
             self.frame_form, text="PIN de Seguridad:", anchor="w"
         )
         self.lbl_pin.pack(pady=0, padx=20, fill="x")
-
         self.entry_pin = ctk.CTkEntry(
             self.frame_form, placeholder_text="Ingrese el PIN", show="*"
         )
@@ -87,7 +93,6 @@ class AppAlumno(ctk.CTk):
             self.frame_form, text="Módulo a rendir:", anchor="w"
         )
         self.lbl_modulo.pack(pady=0, padx=20, fill="x")
-
         self.combo_modulo = ctk.CTkOptionMenu(
             self.frame_form,
             values=["Imperativo", "Objetos", "Concurrente"],
@@ -120,6 +125,7 @@ class AppAlumno(ctk.CTk):
             command=self.iniciar_entrega,
         )
         self.btn_enviar.pack(pady=(5, 20), padx=40, fill="x")
+
         self.cola_mensajes = queue.Queue()
         self.procesar_cola()
 
@@ -151,7 +157,6 @@ class AppAlumno(ctk.CTk):
         """
         modulo_seleccionado = self.combo_modulo.get()
 
-        # Mantenemos los filtros visuales para el explorador de Windows
         if modulo_seleccionado == "Imperativo":
             tipos_archivo = [("Archivos Pascal", "*.pas")]
         elif modulo_seleccionado == "Objetos":
@@ -167,14 +172,12 @@ class AppAlumno(ctk.CTk):
         if ruta:
             nombre_archivo = os.path.basename(ruta)
 
-            # Validamos el peso del archivo consultando al módulo compartido
             if os.path.getsize(ruta) > seep_config.MAX_TAMANO_BYTES:
                 self.marcar_error_archivo(
                     f"Error: El archivo pesa más de {seep_config.MAX_TAMANO_MB}MB"
                 )
                 return
 
-            # Validamos la extensión consultando al módulo compartido
             es_valido, resultado = seep_config.validar_extension(
                 nombre_archivo, modulo_seleccionado
             )
@@ -183,10 +186,9 @@ class AppAlumno(ctk.CTk):
                 return
 
             self.ruta_archivo = ruta
-            self.lbl_archivo_seleccionado.configure(
-                text=f"📁 {nombre_archivo}",
-            )
+            self.lbl_archivo_seleccionado.configure(text=f"📁 {nombre_archivo}")
             self.mostrar_estado("", "gray")
+            logging.info(f"Archivo válido seleccionado: {ruta}")
 
     def marcar_error_archivo(self, mensaje):
         """
@@ -198,6 +200,7 @@ class AppAlumno(ctk.CTk):
         self.lbl_archivo_seleccionado.configure(
             text="Ningún archivo seleccionado", text_color="gray"
         )
+        logging.warning(f"Validación de archivo fallida: {mensaje}")
 
     def mostrar_estado(self, mensaje, color):
         """
@@ -228,6 +231,8 @@ class AppAlumno(ctk.CTk):
 
         self.btn_enviar.configure(state="disabled", text="Enviando...")
         self.mostrar_estado("Conectando con la PC del docente...", "#f1c40f")
+
+        logging.info(f"Iniciando intento de entrega hacia {ip} para {identificador}")
 
         hilo = threading.Thread(
             target=self.enviar_red,
@@ -264,6 +269,7 @@ class AppAlumno(ctk.CTk):
                 )
 
                 if respuesta.status_code == 200:
+                    logging.info("Entrega confirmada por el servidor (HTTP 200).")
                     self.cola_mensajes.put(
                         lambda: self.mostrar_estado("✅ Entrega exitosa.", "#2ecc71")
                     )
@@ -280,6 +286,7 @@ class AppAlumno(ctk.CTk):
                             f"Error crítico en servidor (HTTP {respuesta.status_code})"
                         )
 
+                    logging.error(f"Rechazo del servidor: {texto_error}")
                     self.cola_mensajes.put(
                         lambda m=texto_error: self.mostrar_estado(
                             f"❌ Error: {m}", "#e74c3c"
@@ -288,6 +295,7 @@ class AppAlumno(ctk.CTk):
                     self.cola_mensajes.put(self.reactivar_boton)
 
         except requests.exceptions.Timeout:
+            logging.error("Timeout al intentar conectar con el servidor.")
             self.cola_mensajes.put(
                 lambda: self.mostrar_estado(
                     "❌ Tiempo de espera agotado. Verificá la IP.", "#e74c3c"
@@ -295,6 +303,7 @@ class AppAlumno(ctk.CTk):
             )
             self.cola_mensajes.put(self.reactivar_boton)
         except requests.exceptions.ConnectionError:
+            logging.error("Fallo de conexión de red (ConnectionError).")
             self.cola_mensajes.put(
                 lambda: self.mostrar_estado(
                     "❌ No se pudo conectar. Verificá la IP.", "#e74c3c"
@@ -303,6 +312,7 @@ class AppAlumno(ctk.CTk):
             self.cola_mensajes.put(self.reactivar_boton)
         except Exception as e:
             mensaje_error = str(e)
+            logging.error(f"Excepción inesperada en envío: {mensaje_error}")
             self.cola_mensajes.put(
                 lambda m=mensaje_error: self.mostrar_estado(
                     f"❌ Error inesperado: {m}", "#e74c3c"

@@ -3,8 +3,16 @@ import random
 import socket
 import hashlib
 import csv
+import logging
 from datetime import datetime
 import threading
+
+# Configuración de Logging para el servidor
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 # Waitress es un servidor de produccion
 from waitress import serve
@@ -75,8 +83,8 @@ def registrar_en_csv(datos_fila):
                     )
                 writer.writerow(datos_fila)
         except PermissionError:
-            print(
-                "[!] ADVERTENCIA: No se pudo escribir en el CSV porque está abierto en otro programa."
+            logging.warning(
+                "No se pudo escribir en el CSV porque está abierto en otro programa (ej. Excel)."
             )
 
 
@@ -136,9 +144,15 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
         ip_cliente = request.remote_addr
 
         if not all([pin_recibido, apellidos, nombres, identificador, archivo]):
+            logging.warning(
+                f"Intento de subida fallido (datos incompletos) desde IP: {ip_cliente}"
+            )
             return jsonify({"error": "Faltan datos requeridos"}), 400
 
         if pin_recibido != current_app.config["PIN"]:
+            logging.warning(
+                f"PIN incorrecto ingresado por {apellidos} ({identificador}) desde IP: {ip_cliente}"
+            )
             return jsonify({"error": "PIN incorrecto"}), 403
 
         modulo_activo = current_app.config["MODULO"]
@@ -149,6 +163,9 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
             nombre_original, modulo_activo
         )
         if not es_valido:
+            logging.warning(
+                f"Extensión inválida enviada por {apellidos} ({identificador})"
+            )
             return jsonify({"error": resultado_validacion}), 400
 
         apellidos_seguro = limpiar_cadena(apellidos)
@@ -180,8 +197,8 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
             ]
             registrar_en_csv(datos_auditoria)
 
-            print(
-                f"[+] Nueva entrega: {apellidos} {nombres} | a las {hora_legible} | DNI/Legajo: {id_seguro}   | PC: {hostname_cliente} | IP: {ip_cliente}"
+            logging.info(
+                f"NUEVA ENTREGA: {apellidos} {nombres} | DNI/Legajo: {id_seguro} | PC: {hostname_cliente} | IP: {ip_cliente}"
             )
             return (
                 jsonify(
@@ -191,7 +208,9 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
             )
 
         except Exception as e:
-            print(f"[-] ERROR GRAVE guardando entrega de {apellidos}: {str(e)}")
+            logging.error(
+                f"ERROR GRAVE guardando entrega de {apellidos}: {str(e)}", exc_info=True
+            )
             return jsonify({"error": f"Error interno al guardar: {str(e)}"}), 500
 
     return app
