@@ -31,7 +31,7 @@ jobs:
           poetry run pyinstaller --noconfirm --onedir --windowed --name "SEEP_Cliente" cliente_alumno.py
 
           # Compilamos el servidor
-          poetry run pyinstaller --noconfirm --onedir --name "SEEP_Servidor" servidor_docente_2.py
+          poetry run pyinstaller --noconfirm --onedir --name "SEEP_Servidor" servidor_docente.py
 
       - name: Empaquetar en ZIP
         run: |
