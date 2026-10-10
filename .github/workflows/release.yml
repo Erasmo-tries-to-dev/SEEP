@@ -1,0 +1,48 @@
+name: Build y Release SEEP
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias con Poetry
+        run: |
+          pip install poetry
+          poetry install
+
+      - name: Construir Ejecutables con PyInstaller
+        run: |
+          # Cliente Alumno (sin consola de fondo)
+          poetry run pyinstaller --onefile --noconsole --name cliente_alumno cliente_alumno.py
+          # Servidor Docente (con consola)
+          poetry run pyinstaller --onefile --name servidor_docente servidor_docente.py
+
+      - name: Generar Hashes SHA-256 de los ejecutables
+        run: |
+          cd dist
+          Get-FileHash cliente_alumno.exe -Algorithm SHA256 > hashes.txt
+          Get-FileHash servidor_docente.exe -Algorithm SHA256 >> hashes.txt
+          cd ..
+
+      - name: Publicar Release en GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/cliente_alumno.exe
+            dist/servidor_docente.exe
+            dist/hashes.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

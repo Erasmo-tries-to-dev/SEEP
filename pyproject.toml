@@ -1,0 +1,20 @@
+[project]
+name = "seep"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Puertas Erasmo",email = "isft193puertassantiago@gmail.com"}
+]
+requires-python = ">=3.12,<3.16"
+dependencies = [
+    "requests (>=2.34.2,<3.0.0)",
+    "customtkinter (>=6.0.0,<7.0.0)"
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+[dependency-groups]
+dev = [
+    "pyinstaller (>=6.22.3,<7.0.0)"
+]
