@@ -1,5 +1,4 @@
 import io
-import servidor_docente
 
 
 def test_b5_extensiones_mayusculas(cliente_pruebas):
@@ -7,9 +6,9 @@ def test_b5_extensiones_mayusculas(cliente_pruebas):
     Verifica el Bug B5: El servidor debe aceptar extensiones válidas
     independientemente de si están en mayúsculas o minúsculas.
     """
-    servidor_docente.PIN_ACTUAL = "0000"
+
+    # Extraemos la app ya configurada desde el fixture
     app = cliente_pruebas.application
-    app.config["MODULO"] = "imperativo"
 
     datos = {
         "apellidos": "Lovelace",

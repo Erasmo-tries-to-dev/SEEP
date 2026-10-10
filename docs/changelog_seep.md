@@ -30,3 +30,7 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
 - **(B6) Manejo de errores internos del servidor:** Se envolvió la lógica crítica de la ruta `/upload` en un bloque `try-except Exception`. Cualquier error interno del servidor (disco lleno, permisos, etc.) ahora es capturado y reportado al cliente mediante un JSON limpio con un código HTTP 500, en lugar de retornar la plantilla HTML de error por defecto de Flask.
 - **(B8) Texto invisible en modo claro:** Se eliminó el parámetro rígido `text_color="white"` del label de archivo seleccionado, permitiendo que CustomTkinter aplique el color contrastante correcto según el tema del sistema operativo.
 - **(B9) Actualización insegura de GUI entre hilos:** Se rediseñó la comunicación entre el hilo de red y la interfaz gráfica implementando `queue.Queue`. Ahora el hilo secundario encola las tareas y el hilo principal las dibuja, previniendo posibles crashes (`TclError`) por violaciones de Thread-Safety en Tkinter.
+
+### ♻️ Refactorización (Refactor)
+
+- **Estado Global y Application Factory:** Se eliminó el estado global (`PIN_ACTUAL` y configuración de módulo en `__main__`) en `servidor_docente.py`. Se implementó el patrón _Application Factory_ (`crear_app()`) de Flask, encapsulando la configuración y permitiendo importar y testear el servidor de forma aislada y profesional sin efectos secundarios. Se actualizaron todos los tests y el fixture `cliente_pruebas` para soportar esta nueva arquitectura.

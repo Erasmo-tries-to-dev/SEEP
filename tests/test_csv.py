@@ -1,6 +1,5 @@
 import os
 import io
-import servidor_docente
 
 
 def test_entrega_con_csv_bloqueado(cliente_pruebas):
@@ -8,15 +7,13 @@ def test_entrega_con_csv_bloqueado(cliente_pruebas):
     Verifica el Bug B2: Si el CSV está bloqueado por otro programa (ej. Excel),
     el servidor debe guardar el archivo del alumno igual y no devolver error 500.
     """
-    # 1. Configuración inicial
-    servidor_docente.PIN_ACTUAL = "0000"
-    app_configurada = cliente_pruebas.application
-    app_configurada.config["MODULO"] = "imperativo"
+    # Extraemos la app ya configurada desde el fixture
+    app = cliente_pruebas.application
 
     # 2. EL TRUCO PARA FORZAR EL ERROR
     # Creamos una carpeta con el nombre del CSV.
     # Al intentar hacer open(..., "a") sobre una carpeta, Windows tira PermissionError idéntico al de Excel.
-    ruta_csv = app_configurada.config["ARCHIVO_CSV"]
+    ruta_csv = app.config["ARCHIVO_CSV"]
     os.mkdir(ruta_csv)
 
     # 3. Simulamos a un alumno entregando
@@ -28,7 +25,7 @@ def test_entrega_con_csv_bloqueado(cliente_pruebas):
         "file": (io.BytesIO(b"begin end."), "examen_bloqueado.pas"),
     }
 
-    with app_configurada.test_client() as cliente:
+    with app.test_client() as cliente:
         respuesta = cliente.post(
             "/upload", data=datos, content_type="multipart/form-data"
         )
@@ -41,7 +38,7 @@ def test_entrega_con_csv_bloqueado(cliente_pruebas):
     ), f"Se esperaba 200, pero devolvió {respuesta.status_code}"
 
     # El archivo físico del parcial DEBE existir en disco a pesar del error del CSV
-    carpeta_temp = app_configurada.config["CARPETA_ENTREGAS"]
+    carpeta_temp = app.config["CARPETA_ENTREGAS"]
     archivos_en_disco = [f for f in os.listdir(carpeta_temp) if f.endswith(".pas")]
     assert (
         len(archivos_en_disco) == 1

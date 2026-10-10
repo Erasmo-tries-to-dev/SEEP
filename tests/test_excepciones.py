@@ -1,6 +1,5 @@
 import io
 from unittest.mock import patch
-import servidor_docente
 
 
 def test_b6_excepcion_json_500(cliente_pruebas):
@@ -8,9 +7,6 @@ def test_b6_excepcion_json_500(cliente_pruebas):
     Verifica el Bug B6: Si ocurre un error interno grave (ej. disco lleno),
     el servidor debe devolver un JSON con código 500, no un HTML.
     """
-    servidor_docente.PIN_ACTUAL = "0000"
-    app = cliente_pruebas.application
-    app.config["MODULO"] = "imperativo"
 
     datos = {
         "apellidos": "Turing",

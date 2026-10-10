@@ -4,28 +4,19 @@ import socket
 import hashlib
 import csv
 from datetime import datetime
-import threading  # Para el modulo de registrar entregas en el csv, evitar que dos hilos escriban al mismo tiempo.
+import threading
 
 # Waitress es un servidor de produccion, lo elegi porque reemplazar el servidor de desarrollo de flask por este fue muy muy sencillo
 # Por supuesto podemos explorar alternativas, pero por lo que lei parece muy solido.
 # Link a la documentacion: https://docs.pylonsproject.org/projects/waitress/en/stable/
 from waitress import serve
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, current_app
 
-app = Flask(__name__)
-
-PIN_ACTUAL = str(
-    random.randint(1000, 9999)
-)  # Genera un PIN de cuatro digitos para el aula
 csv_lock = threading.Lock()
 
 
 def obtener_ip_local():
-    """
-    Establece una conexión de prueba para determinar y retornar la dirección IP local
-    de la máquina del docente dentro de la red actual.
-    """
-    # Nota importante: Si implemento la alternativa de levantar un hotspot esta funcion debe asegurarse de poder devolver la ip del hotspot y no la de la red de la facultad.
+    """Establece una conexión de prueba para determinar y retornar la dirección IP local."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(("10.255.255.255", 1))
@@ -38,11 +29,7 @@ def obtener_ip_local():
 
 
 def limpiar_cadena(texto):
-    """
-    Sanitiza una cadena de texto eliminando o reemplazando caracteres inválidos
-    para garantizar que pueda ser utilizada de forma segura en nombres de archivos
-    dentro del sistema operativo Windows.
-    """
+    """Sanitiza una cadena de texto para uso seguro en Windows."""
     texto = texto.replace(" ", "_").replace("/", "-")
     for caracter_invalido in ["<", ">", ":", '"', "\\", "|", "?", "*"]:
         texto = texto.replace(caracter_invalido, "")
@@ -50,40 +37,28 @@ def limpiar_cadena(texto):
 
 
 def calcular_hash(archivo):
-    """
-    Calcula el hash SHA-256 del archivo para detectar copias exactas y garantizar la integridad.
-    Lee el archivo en bloques para optimizar memoria y reposiciona el puntero al inicio
-    tras finalizar la lectura para evitar guardar un archivo vacío en pasos posteriores.
-    """
+    """Calcula el hash SHA-256 del archivo en bloques."""
     sha256_hash = hashlib.sha256()
-
     for byte_block in iter(lambda: archivo.read(4096), b""):
         sha256_hash.update(byte_block)
-
     archivo.seek(0)
-
     return sha256_hash.hexdigest()
 
 
 def registrar_en_csv(datos_fila):
-    """
-    Guarda los datos de la entrega en un archivo CSV, utilizando codificación utf-8-sig
-    y separador de punto y coma para asegurar la correcta lectura de acentos y columnas
-    al abrirse directamente con el software de hojas de cálculo de los docentes.
-    """
-    nombre_archivo_csv = app.config.get(
-        "ARCHIVO_CSV", f"registro_entregas_{app.config['MODULO']}.csv"
+    """Guarda los datos de la entrega en un archivo CSV."""
+    # Usamos current_app en lugar de la variable global 'app'
+    nombre_archivo_csv = current_app.config.get(
+        "ARCHIVO_CSV", f"registro_entregas_{current_app.config['MODULO']}.csv"
     )
 
     with csv_lock:
         archivo_existe = os.path.isfile(nombre_archivo_csv)
-
         try:
             with open(
                 nombre_archivo_csv, mode="a", newline="", encoding="utf-8-sig"
             ) as f:
                 writer = csv.writer(f, delimiter=";")
-
                 if not archivo_existe:
                     writer.writerow(
                         [
@@ -98,23 +73,15 @@ def registrar_en_csv(datos_fila):
                             "Nombre de Archivo",
                         ]
                     )
-
                 writer.writerow(datos_fila)
-        # Este except busca resolver B2, probablemente no haga falta en un futuro cuando se implemente la interfaz grafica, pero por ahora lo dejo.
         except PermissionError:
-            # Si Excel tiene abierto el archivo, no crasheamos.
-            # El archivo .pas ya se guardó en disco, solo perdemos esta fila del log.
             print(
-                f"[!] ADVERTENCIA: No se pudo escribir en el CSV porque está abierto en otro programa."
+                "[!] ADVERTENCIA: No se pudo escribir en el CSV porque está abierto en otro programa."
             )
 
 
 def configurar_modulo():
-    """
-    Presenta un menú interactivo en consola para que el docente seleccione el módulo a evaluar.
-    Retorna una tupla con el nombre del módulo y el nombre de la carpeta de destino correspondiente.
-    """
-    # Por supuesto esto va a ser reemplazado por una interfaz grafica ni bien pueda sentarme a hacerla.
+    """Menú interactivo en consola."""
     print("=" * 60)
     print(" SELECCIONE EL MÓDULO A EVALUAR ")
     print("=" * 60)
@@ -136,25 +103,18 @@ def configurar_modulo():
 
 
 def validar_extension(nombre_archivo, modulo):
-    """
-    Verifica que el archivo entregado tenga la extensión correcta según el módulo evaluado.
-    Retorna una tupla: (es_valido, extension_o_mensaje_de_error).
-    """
-    # Convertimos a minúsculas para evitar inconsistencias (Resuelve B5)
+    """Verifica que el archivo entregado tenga la extensión correcta."""
     nombre_lower = nombre_archivo.lower()
 
     if modulo == "imperativo":
         if not nombre_lower.endswith(".pas"):
             return False, "Módulo Imperativo: Solo se permiten archivos .pas"
         return True, ".pas"
-
     elif modulo == "objetos":
         if not nombre_lower.endswith(".zip"):
             return False, "Módulo Objetos: Solo se permiten archivos .zip"
         return True, ".zip"
-
     elif modulo == "concurrente":
-        # Concurrente es un tema, porque los archivos que genera R-info no tienen extension.
         if "." in nombre_lower:
             return (
                 False,
@@ -165,104 +125,105 @@ def validar_extension(nombre_archivo, modulo):
     return False, "Módulo desconocido"
 
 
-@app.route("/ping", methods=["GET"])
-def ping():
+def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
     """
-    Endpoint de prueba de conectividad para verificar que el servidor se encuentra activo.
+    Application Factory: Crea y configura una instancia de la aplicación Flask.
+    Esto elimina el estado global y permite testing limpio.
     """
-    return jsonify({"status": "ok", "mensaje": "Servidor activo"}), 200
+    app = Flask(__name__)
 
-
-@app.route("/upload", methods=["POST"])
-def upload():
-    """
-    Endpoint principal para la recepción de exámenes.
-    Valida el PIN, los datos del alumno y el formato del archivo según el módulo activo.
-    Sanitiza los datos, guarda el archivo físico de forma segura y registra la entrega en los logs.
-    """
-    pin_recibido = request.form.get("pin")
-    apellidos = request.form.get("apellidos")
-    nombres = request.form.get("nombres")
-    identificador = request.form.get("identificador")
-    archivo = request.files.get("file")
-
-    # Por lo que vi, las compus de los laboratorios suelen tener un hostname como lab07-22, asi que me parecio un campo util
-    hostname_cliente = request.form.get("hostname", "Desconocido")
-    ip_cliente = request.remote_addr
-
-    if not all([pin_recibido, apellidos, nombres, identificador, archivo]):
-        return jsonify({"error": "Faltan datos requeridos"}), 400
-
-    if pin_recibido != PIN_ACTUAL:
-        return jsonify({"error": "PIN incorrecto"}), 403
-
-    modulo_activo = app.config["MODULO"]
-    nombre_original = archivo.filename
-
-    # Estas validaciones por supuesto tambien se hacen del lado del cliente
-    es_valido, resultado_validacion = validar_extension(nombre_original, modulo_activo)
-    if not es_valido:
-        return jsonify({"error": resultado_validacion}), 400
-
-    ext_guardado = resultado_validacion
-
-    apellidos_seguro = limpiar_cadena(apellidos)
-    nombres_seguro = limpiar_cadena(nombres)
-    id_seguro = limpiar_cadena(identificador)
-    # Guarda momento exacto una sola vez para que nombre y CSV coincidan (Resuelve B7)
-    momento_entrega = datetime.now()
-
-    # Agrega milisegundos (%f) al timestamp para evitar sobrescrituras (Resuelve B1)
-    timestamp = momento_entrega.strftime("%Y%m%d_%H%M%S_%f")
-    hora_legible = momento_entrega.strftime("%H:%M:%S")
-
-    carpeta_destino = app.config["CARPETA_ENTREGAS"]
-    # Fuerzo el nombre final del archivo para evitar errores de los alumnos como poner el nombre primero.
-    nombre_final = (
-        f"{apellidos_seguro}_{nombres_seguro}_{id_seguro}_{timestamp}{ext_guardado}"
+    # Inyectamos las configuraciones en la app
+    app.config["PIN"] = pin_fijo if pin_fijo else str(random.randint(1000, 9999))
+    app.config["MODULO"] = modulo_elegido
+    app.config["CARPETA_ENTREGAS"] = (
+        carpeta_elegida if carpeta_elegida else f"entregas_{modulo_elegido}"
     )
-    ruta_guardado = os.path.join(carpeta_destino, nombre_final)
 
-    hash_archivo = calcular_hash(archivo)
+    os.makedirs(app.config["CARPETA_ENTREGAS"], exist_ok=True)
 
-    try:
-        archivo.save(ruta_guardado)
+    @app.route("/ping", methods=["GET"])
+    def ping():
+        return jsonify({"status": "ok", "mensaje": "Servidor activo"}), 200
 
-        datos_auditoria = [
-            hora_legible,
-            modulo_activo,
-            identificador,
-            apellidos,
-            nombres,
-            ip_cliente,
-            hostname_cliente,
-            hash_archivo,
-            nombre_final,
-        ]
-        registrar_en_csv(datos_auditoria)
+    @app.route("/upload", methods=["POST"])
+    def upload():
+        pin_recibido = request.form.get("pin")
+        apellidos = request.form.get("apellidos")
+        nombres = request.form.get("nombres")
+        identificador = request.form.get("identificador")
+        archivo = request.files.get("file")
 
-        print(
-            f"[+] Nueva entrega: {apellidos} {nombres} | a las {hora_legible} | DNI/Legajo: {id_seguro}   | PC: {hostname_cliente} | IP: {ip_cliente}"
+        hostname_cliente = request.form.get("hostname", "Desconocido")
+        ip_cliente = request.remote_addr
+
+        if not all([pin_recibido, apellidos, nombres, identificador, archivo]):
+            return jsonify({"error": "Faltan datos requeridos"}), 400
+
+        # Ahora el PIN se lee de la configuración segura de Flask
+        if pin_recibido != current_app.config["PIN"]:
+            return jsonify({"error": "PIN incorrecto"}), 403
+
+        modulo_activo = current_app.config["MODULO"]
+        nombre_original = archivo.filename
+
+        es_valido, resultado_validacion = validar_extension(
+            nombre_original, modulo_activo
         )
+        if not es_valido:
+            return jsonify({"error": resultado_validacion}), 400
 
-        return (
-            jsonify({"mensaje": f"Parcial de {modulo_activo} entregado exitosamente"}),
-            200,
-        )
+        apellidos_seguro = limpiar_cadena(apellidos)
+        nombres_seguro = limpiar_cadena(nombres)
+        id_seguro = limpiar_cadena(identificador)
+        momento_entrega = datetime.now()
 
-    except Exception as e:
-        print(f"[-] ERROR GRAVE guardando entrega de {apellidos}: {str(e)}")
-        # Atajamos el error y devolvemos un JSON limpio (Resuelve B6)
-        return jsonify({"error": f"Error interno al guardar: {str(e)}"}), 500
+        timestamp = momento_entrega.strftime("%Y%m%d_%H%M%S_%f")
+        hora_legible = momento_entrega.strftime("%H:%M:%S")
+
+        carpeta_destino = current_app.config["CARPETA_ENTREGAS"]
+        nombre_final = f"{apellidos_seguro}_{nombres_seguro}_{id_seguro}_{timestamp}{resultado_validacion}"
+        ruta_guardado = os.path.join(carpeta_destino, nombre_final)
+
+        hash_archivo = calcular_hash(archivo)
+
+        try:
+            archivo.save(ruta_guardado)
+            datos_auditoria = [
+                hora_legible,
+                modulo_activo,
+                identificador,
+                apellidos,
+                nombres,
+                ip_cliente,
+                hostname_cliente,
+                hash_archivo,
+                nombre_final,
+            ]
+            registrar_en_csv(datos_auditoria)
+
+            print(
+                f"[+] Nueva entrega: {apellidos} {nombres} | a las {hora_legible} | DNI/Legajo: {id_seguro}   | PC: {hostname_cliente} | IP: {ip_cliente}"
+            )
+            return (
+                jsonify(
+                    {"mensaje": f"Parcial de {modulo_activo} entregado exitosamente"}
+                ),
+                200,
+            )
+
+        except Exception as e:
+            print(f"[-] ERROR GRAVE guardando entrega de {apellidos}: {str(e)}")
+            return jsonify({"error": f"Error interno al guardar: {str(e)}"}), 500
+
+    return app
 
 
 if __name__ == "__main__":
     modulo_elegido, carpeta_elegida = configurar_modulo()
 
-    app.config["MODULO"] = modulo_elegido
-    app.config["CARPETA_ENTREGAS"] = carpeta_elegida
+    # Creamos la app de forma profesional
+    app = crear_app(modulo_elegido=modulo_elegido, carpeta_elegida=carpeta_elegida)
 
-    os.makedirs(carpeta_elegida, exist_ok=True)
     ip_local = obtener_ip_local()
     os.system("cls" if os.name == "nt" else "clear")
 
@@ -272,7 +233,7 @@ if __name__ == "__main__":
     )
     print("=" * 60)
     print(f" IP: {ip_local}")
-    print(f" PIN PARA ALUMNOS: {PIN_ACTUAL}")
+    print(f" PIN PARA ALUMNOS: {app.config['PIN']}")
     print(f" LOS PARCIALES SE GUARDARÁN EN: ./{carpeta_elegida}/")
     print(f" LOS LOGS SE GUARDARÁN EN: ./registro_entregas_{modulo_elegido}.csv")
     print("=" * 60)
