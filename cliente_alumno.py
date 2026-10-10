@@ -38,8 +38,9 @@ class AppAlumno(ctk.CTk):
         logging.info("Iniciando aplicación Cliente Alumno SEEP.")
 
         self.title("SEEP - Taller de Programación")
-        self.geometry("500x700")
-        self.resizable(False, False)
+        # Cambiamos 500x700 por 500x600 y permitimos redimensionar el alto (True)
+        self.geometry("500x600")
+        self.resizable(False, True)
 
         self.ruta_archivo = None
         self.entradas = {}  # Diccionario para guardar referencias a los CTkEntry
@@ -277,6 +278,7 @@ class AppAlumno(ctk.CTk):
                     "nombres": nombres,
                     "identificador": identificador,
                     "hostname": socket.gethostname(),
+                    "version": seep_config.VERSION_SEEP,
                 }
 
                 respuesta = requests.post(

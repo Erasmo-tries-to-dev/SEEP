@@ -3,6 +3,7 @@ import io
 import sys
 import logging
 import subprocess
+import seep_config
 
 
 def test_servidor_loggea_pin_incorrecto(cliente_pruebas, caplog):
@@ -16,6 +17,7 @@ def test_servidor_loggea_pin_incorrecto(cliente_pruebas, caplog):
         "identificador": "999",
         "pin": "PIN_TOTALMENTE_FALSO",
         "file": (io.BytesIO(b"codigo"), "examen.pas"),
+        "version": seep_config.VERSION_SEEP,
     }
 
     with caplog.at_level(logging.WARNING):

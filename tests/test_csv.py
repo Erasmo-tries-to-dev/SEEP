@@ -1,5 +1,6 @@
 import os
 import io
+import seep_config
 
 
 def test_entrega_con_csv_bloqueado(cliente_pruebas):
@@ -23,6 +24,7 @@ def test_entrega_con_csv_bloqueado(cliente_pruebas):
         "identificador": "0000X",
         "pin": "0000",
         "file": (io.BytesIO(b"begin end."), "examen_bloqueado.pas"),
+        "version": seep_config.VERSION_SEEP,
     }
 
     with app.test_client() as cliente:

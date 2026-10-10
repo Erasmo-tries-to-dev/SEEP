@@ -1,5 +1,6 @@
 import io
 from unittest.mock import patch
+import seep_config
 
 
 def test_b6_excepcion_json_500(cliente_pruebas):
@@ -14,6 +15,7 @@ def test_b6_excepcion_json_500(cliente_pruebas):
         "identificador": "999",
         "pin": "0000",
         "file": (io.BytesIO(b"codigo"), "examen.pas"),
+        "version": seep_config.VERSION_SEEP,
     }
 
     # Simulamos que el disco duro está lleno y el sistema operativo rechaza el guardado

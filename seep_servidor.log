@@ -102,3 +102,121 @@ Traceback (most recent call last):
 OSError: No hay espacio en disco
 19:18:26 [INFO] NUEVA ENTREGA: Lovelace Ada | DNI/Legajo: 123 | PC: Desconocido | IP: 127.0.0.1
 19:18:26 [WARNING] PIN incorrecto ingresado por Turing (999) desde IP: 127.0.0.1
+19:43:53 [INFO] Iniciando aplicación Cliente Alumno SEEP.
+19:43:53 [ERROR] Excepción inesperada en envío: Falla_catastrofica_simulada
+19:43:53 [INFO] Iniciando aplicación Cliente Alumno SEEP.
+19:43:53 [ERROR] Rechazo del servidor: Error crítico en servidor (HTTP 500)
+19:43:53 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:43:53 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:43:53 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:43:53 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:43:53 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:43:53 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:43:53 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:43:53 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:43:53 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:46:38 [INFO] Iniciando aplicación Cliente Alumno SEEP.
+19:46:38 [ERROR] Excepción inesperada en envío: Falla_catastrofica_simulada
+19:46:38 [INFO] Iniciando aplicación Cliente Alumno SEEP.
+19:46:38 [ERROR] Rechazo del servidor: Error crítico en servidor (HTTP 500)
+19:46:38 [INFO] NUEVA ENTREGA: Hacker Clon_1 | DNI/Legajo: 00001 | PC: Desconocido | IP: 127.0.0.1
+19:46:38 [INFO] NUEVA ENTREGA: Hacker Clon_2 | DNI/Legajo: 00002 | PC: Desconocido | IP: 127.0.0.1
+19:46:38 [INFO] NUEVA ENTREGA: Hacker Clon_4 | DNI/Legajo: 00004 | PC: Desconocido | IP: 127.0.0.1
+19:46:38 [INFO] NUEVA ENTREGA: Hacker Clon_0 | DNI/Legajo: 00000 | PC: Desconocido | IP: 127.0.0.1
+19:46:38 [INFO] NUEVA ENTREGA: Hacker Clon_3 | DNI/Legajo: 00003 | PC: Desconocido | IP: 127.0.0.1
+19:46:38 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:46:38 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:46:38 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:46:38 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:48:13 [INFO] Iniciando aplicación Cliente Alumno SEEP.
+19:48:13 [ERROR] Excepción inesperada en envío: Falla_catastrofica_simulada
+19:48:13 [INFO] Iniciando aplicación Cliente Alumno SEEP.
+19:48:14 [ERROR] Rechazo del servidor: Error crítico en servidor (HTTP 500)
+19:48:14 [INFO] NUEVA ENTREGA: Hacker Clon_4 | DNI/Legajo: 00004 | PC: Desconocido | IP: 127.0.0.1
+19:48:14 [INFO] NUEVA ENTREGA: Hacker Clon_3 | DNI/Legajo: 00003 | PC: Desconocido | IP: 127.0.0.1
+19:48:14 [INFO] NUEVA ENTREGA: Hacker Clon_2 | DNI/Legajo: 00002 | PC: Desconocido | IP: 127.0.0.1
+19:48:14 [INFO] NUEVA ENTREGA: Hacker Clon_1 | DNI/Legajo: 00001 | PC: Desconocido | IP: 127.0.0.1
+19:48:14 [INFO] NUEVA ENTREGA: Hacker Clon_0 | DNI/Legajo: 00000 | PC: Desconocido | IP: 127.0.0.1
+19:48:14 [WARNING] No se pudo escribir en el CSV porque está abierto en otro programa (ej. Excel).
+19:48:14 [INFO] NUEVA ENTREGA: Hacker CSV_Bloqueado | DNI/Legajo: 0000X | PC: Desconocido | IP: 127.0.0.1
+19:48:14 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:48:14 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:48:14 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:48:48 [INFO] Iniciando aplicación Cliente Alumno SEEP.
+19:48:48 [ERROR] Excepción inesperada en envío: Falla_catastrofica_simulada
+19:48:48 [INFO] Iniciando aplicación Cliente Alumno SEEP.
+19:48:48 [ERROR] Rechazo del servidor: Error crítico en servidor (HTTP 500)
+19:48:48 [INFO] NUEVA ENTREGA: Hacker Clon_2 | DNI/Legajo: 00002 | PC: Desconocido | IP: 127.0.0.1
+19:48:48 [INFO] NUEVA ENTREGA: Hacker Clon_1 | DNI/Legajo: 00001 | PC: Desconocido | IP: 127.0.0.1
+19:48:48 [INFO] NUEVA ENTREGA: Hacker Clon_0 | DNI/Legajo: 00000 | PC: Desconocido | IP: 127.0.0.1
+19:48:48 [INFO] NUEVA ENTREGA: Hacker Clon_4 | DNI/Legajo: 00004 | PC: Desconocido | IP: 127.0.0.1
+19:48:48 [INFO] NUEVA ENTREGA: Hacker Clon_3 | DNI/Legajo: 00003 | PC: Desconocido | IP: 127.0.0.1
+19:48:48 [WARNING] No se pudo escribir en el CSV porque está abierto en otro programa (ej. Excel).
+19:48:48 [INFO] NUEVA ENTREGA: Hacker CSV_Bloqueado | DNI/Legajo: 0000X | PC: Desconocido | IP: 127.0.0.1
+19:48:48 [ERROR] ERROR GRAVE guardando entrega de Turing: No hay espacio en disco
+Traceback (most recent call last):
+  File "C:\Users\Tango\Desktop\Repositorios\ErasmoTransferProtocol\SEEP\servidor_docente.py", line 223, in upload
+    archivo.save(ruta_guardado)
+  File "C:\Python312\Lib\unittest\mock.py", line 1134, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\unittest\mock.py", line 1138, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\unittest\mock.py", line 1193, in _execute_mock_call
+    raise effect
+OSError: No hay espacio en disco
+19:48:48 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:48:48 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:49:25 [INFO] Iniciando aplicación Cliente Alumno SEEP.
+19:49:25 [ERROR] Excepción inesperada en envío: Falla_catastrofica_simulada
+19:49:25 [INFO] Iniciando aplicación Cliente Alumno SEEP.
+19:49:25 [ERROR] Rechazo del servidor: Error crítico en servidor (HTTP 500)
+19:49:25 [INFO] NUEVA ENTREGA: Hacker Clon_4 | DNI/Legajo: 00004 | PC: Desconocido | IP: 127.0.0.1
+19:49:25 [INFO] NUEVA ENTREGA: Hacker Clon_1 | DNI/Legajo: 00001 | PC: Desconocido | IP: 127.0.0.1
+19:49:25 [INFO] NUEVA ENTREGA: Hacker Clon_2 | DNI/Legajo: 00002 | PC: Desconocido | IP: 127.0.0.1
+19:49:25 [INFO] NUEVA ENTREGA: Hacker Clon_3 | DNI/Legajo: 00003 | PC: Desconocido | IP: 127.0.0.1
+19:49:25 [INFO] NUEVA ENTREGA: Hacker Clon_0 | DNI/Legajo: 00000 | PC: Desconocido | IP: 127.0.0.1
+19:49:25 [WARNING] No se pudo escribir en el CSV porque está abierto en otro programa (ej. Excel).
+19:49:25 [INFO] NUEVA ENTREGA: Hacker CSV_Bloqueado | DNI/Legajo: 0000X | PC: Desconocido | IP: 127.0.0.1
+19:49:25 [ERROR] ERROR GRAVE guardando entrega de Turing: No hay espacio en disco
+Traceback (most recent call last):
+  File "C:\Users\Tango\Desktop\Repositorios\ErasmoTransferProtocol\SEEP\servidor_docente.py", line 223, in upload
+    archivo.save(ruta_guardado)
+  File "C:\Python312\Lib\unittest\mock.py", line 1134, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\unittest\mock.py", line 1138, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\unittest\mock.py", line 1193, in _execute_mock_call
+    raise effect
+OSError: No hay espacio en disco
+19:49:25 [INFO] NUEVA ENTREGA: Lovelace Ada | DNI/Legajo: 123 | PC: Desconocido | IP: 127.0.0.1
+19:49:25 [WARNING] Intento de conexión con versión incompatible: None vs 0.2.0
+19:49:44 [INFO] Iniciando aplicación Cliente Alumno SEEP.
+19:49:44 [ERROR] Excepción inesperada en envío: Falla_catastrofica_simulada
+19:49:44 [INFO] Iniciando aplicación Cliente Alumno SEEP.
+19:49:44 [ERROR] Rechazo del servidor: Error crítico en servidor (HTTP 500)
+19:49:44 [INFO] NUEVA ENTREGA: Hacker Clon_0 | DNI/Legajo: 00000 | PC: Desconocido | IP: 127.0.0.1
+19:49:44 [INFO] NUEVA ENTREGA: Hacker Clon_1 | DNI/Legajo: 00001 | PC: Desconocido | IP: 127.0.0.1
+19:49:44 [INFO] NUEVA ENTREGA: Hacker Clon_2 | DNI/Legajo: 00002 | PC: Desconocido | IP: 127.0.0.1
+19:49:44 [INFO] NUEVA ENTREGA: Hacker Clon_4 | DNI/Legajo: 00004 | PC: Desconocido | IP: 127.0.0.1
+19:49:44 [INFO] NUEVA ENTREGA: Hacker Clon_3 | DNI/Legajo: 00003 | PC: Desconocido | IP: 127.0.0.1
+19:49:44 [WARNING] No se pudo escribir en el CSV porque está abierto en otro programa (ej. Excel).
+19:49:44 [INFO] NUEVA ENTREGA: Hacker CSV_Bloqueado | DNI/Legajo: 0000X | PC: Desconocido | IP: 127.0.0.1
+19:49:44 [ERROR] ERROR GRAVE guardando entrega de Turing: No hay espacio en disco
+Traceback (most recent call last):
+  File "C:\Users\Tango\Desktop\Repositorios\ErasmoTransferProtocol\SEEP\servidor_docente.py", line 223, in upload
+    archivo.save(ruta_guardado)
+  File "C:\Python312\Lib\unittest\mock.py", line 1134, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\unittest\mock.py", line 1138, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\unittest\mock.py", line 1193, in _execute_mock_call
+    raise effect
+OSError: No hay espacio en disco
+19:49:44 [INFO] NUEVA ENTREGA: Lovelace Ada | DNI/Legajo: 123 | PC: Desconocido | IP: 127.0.0.1
+19:49:44 [WARNING] PIN incorrecto ingresado por Turing (999) desde IP: 127.0.0.1

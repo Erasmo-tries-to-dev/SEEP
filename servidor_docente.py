@@ -29,6 +29,15 @@ import seep_config
 csv_lock = threading.Lock()
 
 
+def obtener_directorio_base():
+    """Obtiene la ruta absoluta donde se encuentra el ejecutable o el script."""
+    if getattr(sys, "frozen", False):
+        # Si está corriendo como un ejecutable (.exe) compilado por PyInstaller
+        return os.path.dirname(sys.executable)
+    # Si está corriendo como un script .py normal
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 def obtener_ip_local():
     """Establece una conexión de prueba para determinar y retornar la dirección IP local."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -61,8 +70,11 @@ def calcular_hash(archivo):
 
 def registrar_en_csv(datos_fila):
     """Guarda los datos de la entrega en un archivo CSV."""
+    directorio_base = obtener_directorio_base()
+    nombre_archivo = f"registro_entregas_{current_app.config['MODULO']}.csv"
+
     nombre_archivo_csv = current_app.config.get(
-        "ARCHIVO_CSV", f"registro_entregas_{current_app.config['MODULO']}.csv"
+        "ARCHIVO_CSV", os.path.join(directorio_base, nombre_archivo)
     )
 
     with csv_lock:
@@ -124,9 +136,14 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
     # Inyectamos las configuraciones en la app
     app.config["PIN"] = pin_fijo if pin_fijo else str(random.randint(1000, 9999))
     app.config["MODULO"] = modulo_elegido
-    app.config["CARPETA_ENTREGAS"] = (
+    # Forzamos que la carpeta de entregas se cree al lado del ejecutable
+    directorio_base = obtener_directorio_base()
+    carpeta_relativa = (
         carpeta_elegida if carpeta_elegida else f"entregas_{modulo_elegido}"
     )
+    app.config["CARPETA_ENTREGAS"] = os.path.join(directorio_base, carpeta_relativa)
+
+    os.makedirs(app.config["CARPETA_ENTREGAS"], exist_ok=True)
 
     # Rechazamos archivos más grandes que el límite establecido en la configuración compartida
     app.config["MAX_CONTENT_LENGTH"] = seep_config.MAX_TAMANO_BYTES
@@ -139,6 +156,21 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
 
     @app.route("/upload", methods=["POST"])
     def upload():
+        version_cliente = request.form.get("version")
+
+        # Validamos que el cliente no sea de una versión vieja
+        if version_cliente != seep_config.VERSION_SEEP:
+            logging.warning(
+                f"Intento de conexión con versión incompatible: {version_cliente} vs {seep_config.VERSION_SEEP}"
+            )
+            return (
+                jsonify(
+                    {
+                        "error": f"Versión del cliente ({version_cliente}) incompatible. El servidor requiere la versión {seep_config.VERSION_SEEP}. Pedí el nuevo programa."
+                    }
+                ),
+                426,
+            )
         pin_recibido = request.form.get("pin")
         apellidos = request.form.get("apellidos")
         nombres = request.form.get("nombres")

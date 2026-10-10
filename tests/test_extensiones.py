@@ -1,4 +1,5 @@
 import io
+import seep_config
 
 
 def test_b5_extensiones_mayusculas(cliente_pruebas):
@@ -17,6 +18,7 @@ def test_b5_extensiones_mayusculas(cliente_pruebas):
         "pin": "0000",
         # Enviamos el archivo con la extensión en mayúsculas
         "file": (io.BytesIO(b"begin end."), "EXAMEN.PAS"),
+        "version": seep_config.VERSION_SEEP,
     }
 
     with app.test_client() as cliente:

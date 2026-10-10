@@ -10,6 +10,12 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
 - **(Punto 15) Build Reproducible y Binarios en Git:** Se eliminó el seguimiento de la carpeta `dist/` y de los archivos `.exe` del repositorio mediante ajustes en el `.gitignore`. Se versionan correctamente `pyproject.toml`, `poetry.lock` y `*.spec`.
 - **(Punto 15) Integración Continua (CI/CD):** Se implementó un flujo de GitHub Actions (`release.yml`) que compila automáticamente los ejecutables en un entorno limpio y genera sus respectivos hashes SHA-256 al crear un nuevo Tag, publicándolos como una Release oficial.
 
+### 🔧 Mantenibilidad y Portabilidad
+
+- **Versionado de Protocolo:** Se agregó un control de versión (`VERSION_SEEP`). El servidor ahora responde con error HTTP 426 si un cliente desactualizado intenta conectarse.
+- **Rutas Absolutas seguras:** El servidor ahora genera los registros CSV y las carpetas de exámenes de forma relativa a la ruta física del ejecutable (`sys.executable`), evitando la pérdida de archivos si el docente lanza el programa desde un acceso directo.
+- **Escalado de Interfaz:** Se redujo la altura predeterminada del cliente y se habilitó el redimensionado vertical para garantizar la accesibilidad en monitores de laboratorio con baja resolución o alto porcentaje de escalado de Windows.
+
 ### 🧪 Pruebas Automatizadas (Testing)
 
 - **(Punto 16) Suite de Pruebas del Servidor:** Se integró la librería `pytest` y se configuró un entorno de pruebas (`conftest.py`) utilizando el cliente de pruebas nativo de Flask con un directorio temporal, aislando las pruebas del sistema de archivos real.
