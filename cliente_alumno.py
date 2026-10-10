@@ -266,14 +266,23 @@ class AppAlumno(ctk.CTk):
                     self.after(
                         0, lambda: self.mostrar_estado("✅ Entrega exitosa.", "#2ecc71")
                     )
-                    # No reactivo el boton de enviar, para evitar que se envie el mismo parcial (o spam) varias veces. Si se quiere volver a enviar para corregir algo, se debera cerrar y volver a abrir la aplicacion.
                     self.after(0, lambda: self.btn_enviar.configure(text="Entregado"))
                 else:
-                    msg_error = respuesta.json().get("error", "Error en el servidor")
+                    # [PARCHE B4]: Intentar decodificar JSON, si falla (ej. HTML 500), capturar el error HTTP
+                    try:
+                        texto_error = respuesta.json().get(
+                            "error", "Error en el servidor"
+                        )
+                    except ValueError:
+                        texto_error = (
+                            f"Error crítico en servidor (HTTP {respuesta.status_code})"
+                        )
+
+                    # Se inyecta la variable en el scope del lambda (m=texto_error)
                     self.after(
                         0,
-                        lambda: self.mostrar_estado(
-                            f"❌ Error: {msg_error}", "#e74c3c"
+                        lambda m=texto_error: self.mostrar_estado(
+                            f"❌ Error: {m}", "#e74c3c"
                         ),
                     )
                     self.after(0, self.reactivar_boton)
@@ -295,10 +304,13 @@ class AppAlumno(ctk.CTk):
             )
             self.after(0, self.reactivar_boton)
         except Exception as e:
+            # [PARCHE B3]: Capturamos el texto del error antes de que Python borre la variable 'e'
+            mensaje_error = str(e)
             self.after(
                 0,
-                lambda: self.mostrar_estado(
-                    f"❌ Error inesperado: {str(e)}", "#e74c3c"
+                # Inyectamos el string en el lambda para evitar el NameError asincrónico
+                lambda m=mensaje_error: self.mostrar_estado(
+                    f"❌ Error inesperado: {m}", "#e74c3c"
                 ),
             )
             self.after(0, self.reactivar_boton)
