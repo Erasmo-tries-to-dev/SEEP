@@ -8,6 +8,7 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
 ### Seguridad
 
 - **Guardado Atómico:** Se implementó el guardado atómico en la ruta `/upload`. Las entregas ahora se escriben en disco con una extensión temporal (`.tmp`) y solo se renonmbran al formato final si la escritura fue 100% exitosa. Esto erradica el riesgo de archivos corruptos o truncados si el servidor pierde energía o se interrumpe durante la recepción (Resuelve vulnerabilidad de infraestructura).
+- **Manejo de Puerto Ocupado:** Se agregó captura de la excepción `OSError` al arrancar el servidor para evitar cierres abruptos y _tracebacks_. Ahora el sistema detecta si el puerto está en uso y muestra instrucciones claras al docente para solucionarlo.
 
 ## [v0.3.0] - 2026-10-11
 

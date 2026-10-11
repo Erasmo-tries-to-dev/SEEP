@@ -7,6 +7,7 @@ import logging
 from datetime import datetime
 import threading
 import sys
+import errno
 
 # Configuración de Logging para el servidor (Consola + Archivo físico)
 logging.basicConfig(
@@ -283,7 +284,11 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
     return app
 
 
-if __name__ == "__main__":
+def arrancar_servidor():
+    """
+    Inicializa la aplicación Flask, imprime la interfaz de consola para el docente
+    y arranca el servidor WSGI (Waitress) capturando posibles errores de red/puertos.
+    """
     modulo_elegido, carpeta_elegida = configurar_modulo()
 
     app = crear_app(modulo_elegido=modulo_elegido, carpeta_elegida=carpeta_elegida)
@@ -304,4 +309,41 @@ if __name__ == "__main__":
     print("SEEP - ESPERANDO EXÁMENES...\n")
 
     # Inicia el servidor usando el puerto de la configuración unificada
-    serve(app, host="0.0.0.0", port=seep_config.PUERTO_API)
+    try:
+        serve(app, host="0.0.0.0", port=seep_config.PUERTO_API)
+    except OSError as e:
+        # Compara contra EADDRINUSE (Linux/Mac) o el WinError 10048 (Windows)
+        es_puerto_ocupado = (getattr(e, "errno", None) == errno.EADDRINUSE) or (
+            getattr(e, "winerror", None) == 10048
+        )
+
+        print("\n" + "!" * 60)
+        print(" ❌ ERROR CRÍTICO AL INICIAR EL SERVIDOR")
+        print("!" * 60)
+
+        if es_puerto_ocupado:
+            print(
+                f" El puerto {seep_config.PUERTO_API} ya está ocupado por otro programa."
+            )
+            print(" Esto casi siempre ocurre porque ya hay OTRA ventana negra de")
+            print(" SEEP abierta en esta computadora.")
+            print("\n Solución:")
+            print(" 1. Busque en la barra de tareas y cierre cualquier otro servidor.")
+            print(" 2. Vuelva a abrir este programa.")
+        else:
+            # Si es OTRO error del sistema operativo (permisos, red caída, etc.)
+            print(" Ocurrió un error inesperado a nivel de sistema operativo o red.")
+            print(f" Detalle técnico: {str(e)}")
+            print(
+                "\n Sugerencia: Verifique su conexión de red o permisos de administrador."
+            )
+
+        print("!" * 60 + "\n")
+
+        # Pausamos la consola para que el docente llegue a leer el mensaje en Windows
+        input(" Presione ENTER para cerrar esta ventana...")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    arrancar_servidor()
