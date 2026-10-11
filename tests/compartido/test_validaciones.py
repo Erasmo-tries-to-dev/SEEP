@@ -1,23 +1,47 @@
 import io
+import pytest
 import seep_config
 
 
-def test_b5_extensiones_mayusculas(cliente_pruebas):
+@pytest.mark.parametrize(
+    "nombre_archivo, modulo, codigo_esperado",
+    [
+        # --- Partición Válida: Imperativo (.pas) ---
+        ("examen.pas", "imperativo", 200),
+        ("EXAMEN.PAS", "imperativo", 200),
+        # --- Partición Válida: Objetos (.zip) ---
+        ("entrega.zip", "objetos", 200),
+        ("ENTREGA.ZIP", "objetos", 200),
+        # --- Partición Válida: Concurrente (rinfo, sin extensión) ---
+        ("ejercicio_robot", "concurrente", 200),
+        ("entrega_rinfo_final", "concurrente", 200),
+        # --- Partición Inválida: Cruce de Módulos (Deben dar 400) ---
+        ("entrega.zip", "imperativo", 400),
+        ("examen.pas", "concurrente", 400),
+        # --- Partición Inválida General (Deben dar 400) ---
+        ("documento.pdf", "imperativo", 400),
+        ("script.py", "objetos", 400),
+        ("virus.exe", "concurrente", 400),
+    ],
+)
+def test_particiones_extensiones(
+    cliente_pruebas, nombre_archivo, modulo, codigo_esperado
+):
     """
-    Verifica el Bug B5: El servidor debe aceptar extensiones válidas
-    independientemente de si están en mayúsculas o minúsculas.
+    Verifica las clases de equivalencia cruzando extensiones vs módulos.
     """
-
-    # Extraemos la app ya configurada desde el fixture
     app = cliente_pruebas.application
+
+    # ¡LA CLAVE ESTÁ ACÁ! Simulamos que el docente configuró el servidor para este módulo
+    app.config["MODULO"] = modulo
 
     datos = {
         "apellidos": "Lovelace",
         "nombres": "Ada",
         "identificador": "123",
         "pin": "0000",
-        # Enviamos el archivo con la extensión en mayúsculas
-        "file": (io.BytesIO(b"begin end."), "EXAMEN.PAS"),
+        # Ya no hace falta mandar "modulo" acá
+        "file": (io.BytesIO(b"contenido simulado"), nombre_archivo),
         "version": seep_config.VERSION_SEEP,
     }
 
@@ -26,7 +50,7 @@ def test_b5_extensiones_mayusculas(cliente_pruebas):
             "/upload", data=datos, content_type="multipart/form-data"
         )
 
-    # Si el bug existe, el servidor devuelve 400 Bad Request
-    assert (
-        respuesta.status_code == 200
-    ), f"Bug B5: El servidor rechazó una extensión válida en mayúsculas. Código: {respuesta.status_code}"
+    assert respuesta.status_code == codigo_esperado, (
+        f"Fallo partición: archivo '{nombre_archivo}' en módulo '{modulo}'. "
+        f"Esperaba {codigo_esperado} pero devolvió {respuesta.status_code}"
+    )
