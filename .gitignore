@@ -14,15 +14,12 @@ build/
 dist/
 *.exe
 
-# Carpetas de entregas locales del SEEP 
-entregas_imperativo/
-entregas_objetos/
-entregas_concurrente/
+# Carpetas dinámicas de entregas locales del SEEP y bases de datos
+entregas_*/
+*.db
+seep_registro.db
 
 # Archivos de auditoría y registros
-registro_entregas_imperativo.csv
-registro_entregas_objetos.csv
-registro_entregas_concurrente.csv
 *.csv
 *.log
 

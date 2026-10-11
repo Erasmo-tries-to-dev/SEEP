@@ -2,12 +2,12 @@ import os
 import random
 import socket
 import hashlib
-import csv
 import logging
 from datetime import datetime
 import threading
 import sys
 import errno
+import sqlite3
 
 # Configuración de Logging para el servidor (Consola + Archivo físico)
 logging.basicConfig(
@@ -26,8 +26,6 @@ from flask import Flask, request, jsonify, current_app
 
 # Importamos nuestra nueva Única Fuente de Verdad compartida
 import seep_config
-
-csv_lock = threading.Lock()
 
 
 def obtener_directorio_base():
@@ -78,90 +76,139 @@ def calcular_hash(archivo):
     return sha256_hash.hexdigest()
 
 
-def registrar_en_csv(datos_fila):
-    """Guarda los datos de la entrega en un archivo CSV protegiendo contra inyección."""
-    directorio_base = obtener_directorio_base()
-    nombre_archivo = f"registro_entregas_{current_app.config['MODULO']}.csv"
-
-    nombre_archivo_csv = current_app.config.get(
-        "ARCHIVO_CSV", os.path.join(directorio_base, nombre_archivo)
-    )
-
-    # S4: Prevenir Inyección de CSV (DDE) en Excel
-    # Si algún campo empieza con fórmulas, lo forzamos a ser texto plano
-    fila_segura = []
-    for campo in datos_fila:
-        texto_campo = str(campo)
-        if texto_campo.startswith(("=", "+", "-", "@")):
-            texto_campo = "'" + texto_campo
-        fila_segura.append(texto_campo)
-
-    with csv_lock:
-        archivo_existe = os.path.isfile(nombre_archivo_csv)
-        try:
-            with open(
-                nombre_archivo_csv, mode="a", newline="", encoding="utf-8-sig"
-            ) as f:
-                writer = csv.writer(f, delimiter=";")
-                if not archivo_existe:
-                    writer.writerow(
-                        [
-                            "Hora",
-                            "Módulo",
-                            "Legajo/DNI",
-                            "Apellidos",
-                            "Nombres",
-                            "IP Origen",
-                            "Hostname",
-                            "Hash SHA-256",
-                            "Nombre de Archivo",
-                        ]
-                    )
-                writer.writerow(fila_segura)
-        except PermissionError:
-            logging.warning(
-                "No se pudo escribir en el CSV porque está abierto en otro programa (ej. Excel)."
-            )
-
-
-def configurar_modulo():
-    """Menú interactivo en consola."""
+def configurar_sesion():
+    """Menú interactivo para configurar la sesión exacta del examen."""
     print("=" * 60)
-    print(" SELECCIONE EL MÓDULO A EVALUAR ")
-    print("=" * 60)
-    print(" 1. Imperativo (.pas)")
-    print(" 2. Objetos (.zip)")
-    print(" 3. Concurrente (Archivo sin extensión de R-Info)")
+    print(" CONFIGURACIÓN DE LA SESIÓN DE EXAMEN ")
     print("=" * 60)
 
+    # 1. Módulo
     while True:
-        opcion = input("Ingrese la opción (1, 2 o 3): ").strip()
+        print(" Módulos: 1. Imperativo | 2. Objetos | 3. Concurrente")
+        opcion = input(" Seleccione el módulo (1-3): ").strip()
         if opcion == "1":
-            return "imperativo", "entregas_imperativo"
+            modulo = "imperativo"
+            break
         elif opcion == "2":
-            return "objetos", "entregas_objetos"
+            modulo = "objetos"
+            break
         elif opcion == "3":
-            return "concurrente", "entregas_concurrente"
-        else:
-            print("Opción inválida. Ingrese 1, 2 o 3.")
+            modulo = "concurrente"
+            break
+        print(" [!] Opción inválida. Ingrese 1, 2 o 3.\n")
+
+    # 2. Turno
+    while True:
+        turno = input(" Ingrese el turno (ej. TA, TB, TC): ").strip().upper()
+        if turno:
+            break
+        print(" [!] El turno no puede estar vacío.\n")
+
+    # 3. Aula
+    while True:
+        aula = input(" Ingrese el aula (ej. 3, 10A, Lab4): ").strip().upper()
+        if aula:
+            break
+        print(" [!] El aula no puede estar vacía.\n")
+
+    return modulo, turno, aula
 
 
-def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
+def inicializar_entorno(modulo, turno, aula):
+    """
+    Crea la carpeta de la sesión y configura la base de datos SQLite.
+    Retorna la ruta de la carpeta, la ruta de la DB y el PIN (nuevo o recuperado).
+    """
+    fecha_hoy = datetime.now().strftime("%Y%m%d")
+
+    # Ej: entregas_imperativo_20261011_TA_LAB3
+    nombre_carpeta = f"entregas_{modulo}_{fecha_hoy}_{turno}_{aula}"
+    directorio_base = obtener_directorio_base()
+    ruta_carpeta = os.path.join(directorio_base, nombre_carpeta)
+
+    os.makedirs(ruta_carpeta, exist_ok=True)
+
+    ruta_db = os.path.join(ruta_carpeta, "seep_registro.db")
+    db_existe = os.path.exists(ruta_db)
+
+    # Conectamos a SQLite (crea el archivo si no existe)
+    conn = sqlite3.connect(ruta_db)
+    cursor = conn.cursor()
+
+    if not db_existe:
+        # Primera vez que se abre esta sesión: Creamos el esquema completo
+        cursor.execute("""
+            CREATE TABLE configuracion (
+                pin TEXT,
+                modulo TEXT,
+                fecha TEXT,
+                turno TEXT,
+                aula TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE alumnos (
+                legajo TEXT PRIMARY KEY,
+                apellidos TEXT,
+                nombres TEXT,
+                ip_vinculada TEXT,
+                hostname_vinculado TEXT,
+                reentrega_habilitada INTEGER DEFAULT 0
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE entregas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                legajo TEXT,
+                timestamp DATETIME,
+                nombre_archivo TEXT,
+                hash_archivo TEXT,
+                codigo_comprobante TEXT,
+                ip_origen TEXT,
+                es_activa INTEGER DEFAULT 1,
+                FOREIGN KEY(legajo) REFERENCES alumnos(legajo)
+            )
+        """)
+
+        # Generamos un PIN nuevo y guardamos el contexto de la sesión
+        pin_sesion = str(random.randint(1000, 9999))
+        cursor.execute(
+            """
+            INSERT INTO configuracion (pin, modulo, fecha, turno, aula)
+            VALUES (?, ?, ?, ?, ?)
+        """,
+            (pin_sesion, modulo, fecha_hoy, turno, aula),
+        )
+        conn.commit()
+    else:
+        # La base ya existe (el docente la cerró y la volvió a abrir). Recuperamos el PIN original.
+        cursor.execute("SELECT pin FROM configuracion LIMIT 1")
+        resultado = cursor.fetchone()
+        pin_sesion = resultado[0] if resultado else str(random.randint(1000, 9999))
+
+    conn.close()
+
+    return ruta_carpeta, ruta_db, pin_sesion
+
+
+def crear_app(modulo_elegido, pin_fijo, carpeta_elegida, ruta_db):
     """
     Application Factory: Crea y configura una instancia de la aplicación Flask.
     """
     app = Flask(__name__)
 
     # Inyectamos las configuraciones en la app
-    app.config["PIN"] = pin_fijo if pin_fijo else str(random.randint(1000, 9999))
+    app.config["PIN"] = pin_fijo
     app.config["MODULO"] = modulo_elegido
-    # Forzamos que la carpeta de entregas se cree al lado del ejecutable
-    directorio_base = obtener_directorio_base()
-    carpeta_relativa = (
-        carpeta_elegida if carpeta_elegida else f"entregas_{modulo_elegido}"
+    app.config["CARPETA_ENTREGAS"] = carpeta_elegida
+    app.config["RUTA_DB"] = (
+        ruta_db  # ¡Acá guardamos la ruta de SQLite para usarla después!
     )
-    app.config["CARPETA_ENTREGAS"] = os.path.join(directorio_base, carpeta_relativa)
 
+    # Rechazamos archivos más grandes que el límite establecido
+    app.config["MAX_CONTENT_LENGTH"] = seep_config.MAX_TAMANO_BYTES
+
+    # (La carpeta ya se creó en inicializar_entorno, pero aseguramos por las dudas)
     os.makedirs(app.config["CARPETA_ENTREGAS"], exist_ok=True)
 
     # Rechazamos archivos más grandes que el límite establecido en la configuración compartida
@@ -227,7 +274,6 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
         id_seguro = limpiar_cadena(identificador)
         hostname_seguro = limpiar_cadena(hostname_cliente)
 
-        # S9: Bloqueamos peticiones con longitudes extremas (Buffer/FileSystem protection)
         if (
             len(apellidos_seguro) > 80
             or len(nombres_seguro) > 80
@@ -261,60 +307,93 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
             return jsonify({"error": resultado_validacion}), 400
 
         momento_entrega = datetime.now()
-
         timestamp = momento_entrega.strftime("%Y%m%d_%H%M%S_%f")
-        hora_legible = momento_entrega.strftime("%H:%M:%S")
 
         carpeta_destino = current_app.config["CARPETA_ENTREGAS"]
         nombre_final = f"{apellidos_seguro}_{nombres_seguro}_{id_seguro}_{timestamp}{resultado_validacion}"
 
-        # Define la ruta final y una ruta temporal
         ruta_guardado = os.path.join(carpeta_destino, nombre_final)
         ruta_temporal = ruta_guardado + ".tmp"
 
         hash_archivo = calcular_hash(archivo)
 
+        # R11: Generamos el código corto de comprobante (los primeros 6 caracteres del hash en mayúsculas)
+        codigo_comprobante = hash_archivo[:6].upper()
+
         try:
-            # 2. Guarda físicamente en el archivo temporal
+            # 1. Guarda físicamente en el archivo temporal
             archivo.save(ruta_temporal)
 
-            # Guardado Atómico: Renombra de .tmp a la extensión final
+            # 2. Guardado Atómico
             os.replace(ruta_temporal, ruta_guardado)
 
-            # Usamos las variables seguras para el CSV
-            datos_auditoria = [
-                hora_legible,
-                modulo_activo,
-                id_seguro,
-                apellidos_seguro,
-                nombres_seguro,
-                ip_cliente,
-                hostname_seguro,
-                hash_archivo,
-                nombre_final,
-            ]
-            registrar_en_csv(datos_auditoria)
+            # 3. Guardado en Base de Datos SQLite (Reemplaza al CSV)
+            ruta_db = current_app.config["RUTA_DB"]
+            conn = sqlite3.connect(ruta_db)
+            cursor = conn.cursor()
 
-            # S3: El log a consola ahora usa cadenas estériles, imposible inyectar \n
-            logging.info(
-                f"NUEVA ENTREGA: {apellidos_seguro} {nombres_seguro} | DNI/Legajo: {id_seguro} | PC: {hostname_seguro} | IP: {ip_cliente}"
+            # Paso 3A: Insertar al alumno si no existe (el IGNORE evita error si ya está registrado)
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO alumnos (legajo, apellidos, nombres, ip_vinculada, hostname_vinculado)
+                VALUES (?, ?, ?, ?, ?)
+            """,
+                (
+                    id_seguro,
+                    apellidos_seguro,
+                    nombres_seguro,
+                    ip_cliente,
+                    hostname_seguro,
+                ),
             )
+
+            # (Fase 2: Aquí irá el bloqueo duro de reentregas. Por ahora, si un alumno vuelve a entregar,
+            # marcamos como inactivas sus entregas previas para que la actual sea la única activa)
+            cursor.execute(
+                "UPDATE entregas SET es_activa = 0 WHERE legajo = ?", (id_seguro,)
+            )
+
+            # Paso 3B: Insertar la entrega en el historial inmutable
+            cursor.execute(
+                """
+                INSERT INTO entregas (legajo, timestamp, nombre_archivo, hash_archivo, codigo_comprobante, ip_origen, es_activa)
+                VALUES (?, ?, ?, ?, ?, ?, 1)
+            """,
+                (
+                    id_seguro,
+                    momento_entrega,
+                    nombre_final,
+                    hash_archivo,
+                    codigo_comprobante,
+                    ip_cliente,
+                ),
+            )
+
+            conn.commit()
+            conn.close()
+
+            logging.info(
+                f"NUEVA ENTREGA: {apellidos_seguro} {nombres_seguro} | DNI/Legajo: {id_seguro} | IP: {ip_cliente} | Comprobante: {codigo_comprobante}"
+            )
+
+            # Devolvemos el código de comprobante al cliente (lo usaremos en la Fase 3)
             return (
                 jsonify(
-                    {"mensaje": f"Parcial de {modulo_activo} entregado exitosamente"}
+                    {
+                        "mensaje": f"Parcial de {modulo_activo} entregado exitosamente",
+                        "comprobante": codigo_comprobante,
+                    }
                 ),
                 200,
             )
 
         except Exception as e:
-            # Si falló, intenta limpiar el archivo temporal por prolijidad
             if os.path.exists(ruta_temporal):
                 try:
                     os.remove(ruta_temporal)
                 except Exception:
-                    pass  # Ignora errores de borrado durante una excepción mayor
+                    pass
 
-            # S3: También usamos la variable segura en caso de error
             logging.error(
                 f"ERROR GRAVE guardando entrega de {apellidos_seguro}: {str(e)}",
                 exc_info=True,
@@ -329,22 +408,29 @@ def arrancar_servidor():
     Inicializa la aplicación Flask, imprime la interfaz de consola para el docente
     y arranca el servidor WSGI (Waitress) capturando posibles errores de red/puertos.
     """
-    modulo_elegido, carpeta_elegida = configurar_modulo()
+    modulo, turno, aula = configurar_sesion()
+    ruta_carpeta, ruta_db, pin_sesion = inicializar_entorno(modulo, turno, aula)
 
-    app = crear_app(modulo_elegido=modulo_elegido, carpeta_elegida=carpeta_elegida)
+    app = crear_app(
+        modulo_elegido=modulo,
+        pin_fijo=pin_sesion,
+        carpeta_elegida=ruta_carpeta,
+        ruta_db=ruta_db,
+    )
 
     ip_local = obtener_ip_local()
     os.system("cls" if os.name == "nt" else "clear")
 
     print("=" * 60)
     print(
-        f" SISTEMA DE ENTREGA DE EXÁMENES PARCIALES (SEEP) - MÓDULO {modulo_elegido.upper()} "
+        f" SISTEMA DE ENTREGA DE EXÁMENES PARCIALES (SEEP) - MÓDULO {modulo.upper()} "
     )
     print("=" * 60)
+    print(f" TURNO: {turno} | AULA: {aula}")
     print(f" IP: {ip_local}")
     print(f" PIN PARA ALUMNOS: {app.config['PIN']}")
-    print(f" LOS PARCIALES SE GUARDARÁN EN: ./{carpeta_elegida}/")
-    print(f" LOS LOGS SE GUARDARÁN EN: ./registro_entregas_{modulo_elegido}.csv")
+    print(f" LOS PARCIALES SE GUARDARÁN EN:\n   {ruta_carpeta}")
+    print(f" BASE DE DATOS (SQLite):\n   {ruta_db}")
     print("=" * 60)
     print("SEEP - ESPERANDO EXÁMENES...\n")
 
@@ -371,7 +457,6 @@ def arrancar_servidor():
             print(" 1. Busque en la barra de tareas y cierre cualquier otro servidor.")
             print(" 2. Vuelva a abrir este programa.")
         else:
-            # Si es OTRO error del sistema operativo (permisos, red caída, etc.)
             print(" Ocurrió un error inesperado a nivel de sistema operativo o red.")
             print(f" Detalle técnico: {str(e)}")
             print(
@@ -379,8 +464,6 @@ def arrancar_servidor():
             )
 
         print("!" * 60 + "\n")
-
-        # Pausamos la consola para que el docente llegue a leer el mensaje en Windows
         input(" Presione ENTER para cerrar esta ventana...")
         sys.exit(1)
 

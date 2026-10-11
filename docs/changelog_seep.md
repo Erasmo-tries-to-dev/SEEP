@@ -3,7 +3,16 @@
 Todas las mejoras notables de este proyecto se documentarán en este archivo.
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
-## [v0.4.0] - 2026-10-11 - en curso
+## [v0.5.0] - 2026-10-11 - en curso
+
+### Arquitectura y Datos (Fase 1)
+
+- **Migración a SQLite por Sesión:** Se reemplazó el registro global en CSV por bases de datos relacionales efímeras (`seep_registro.db`) aisladas por carpeta de examen.
+- **Estructura Dinámica de Carpetas:** El servidor ahora solicita Módulo, Turno y Aula al iniciar, creando directorios herméticos (ej. `entregas_imperativo_20261011_TA_Lab3`).
+- **Control de Identidad:** Implementación de un esquema relacional que separa la identidad del alumno (`legajo`, `ip_vinculada`) del historial inmutable de sus entregas.
+- **Comprobante Criptográfico:** El servidor ahora genera un código corto derivado del hash SHA-256 que se devuelve al cliente tras una entrega exitosa.
+
+## [v0.4.0] - 2026-10-11
 
 ### Seguridad
 
