@@ -1,5 +1,10 @@
 # Documentación de Pruebas Automatizadas (Suite SEEP)
 
+> ⚠️ **Alcance y Limitaciones Actuales (Disclaimer)**
+> La intención principal de esta suite de pruebas fue validar empíricamente que los bugs críticos (B1 a B9) detectados en la auditoría inicial hayan sido parcheados con éxito. Si bien los tests se refactorizaron posteriormente para generalizarlos hacia una cobertura por dominios, **aún se requieren pruebas manuales exhaustivas**, preferentemente ejecutadas en las computadoras del entorno real de los laboratorios. Asimismo, se reconoce la necesidad de continuar expandiendo esta suite en futuras versiones para terminar de mitigar el _bus factor_ (o más bien, el _tabaco factor_) del proyecto a largo plazo.
+
+---
+
 Este documento detalla la arquitectura de pruebas implementada para garantizar la calidad, resiliencia y correctitud del Sistema de Entrega de Exámenes de Programación (SEEP).
 
 ## 🏛️ Estrategia Arquitectónica
