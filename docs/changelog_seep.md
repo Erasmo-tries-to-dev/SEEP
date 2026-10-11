@@ -3,6 +3,23 @@
 Todas las mejoras notables de este proyecto se documentarán en este archivo.
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [v0.3.0] - 2026-10-11
+
+### 🏗️ Arquitectura y Calidad de Software
+
+- **Estrategia de Testing Basada en Dominios:** Se abandonó el enfoque reactivo (testing por síntomas/bugs) a favor de una arquitectura de pruebas proactiva organizada por responsabilidades: `tests/cliente/`, `tests/servidor/` y `tests/compartido/`.
+- **Refactorización de Handshake (API):** El endpoint `/ping` ahora exige y valida la versión del cliente de manera explícita (Early Fail). Si el cliente es obsoleto, es rechazado con HTTP 426 antes de intentar operaciones pesadas.
+
+### 🧪 Pruebas Automatizadas (Técnicas de Caja Negra)
+
+- **Particiones Equivalentes (Equivalence Partitioning):** 
+  - Se implementó una matriz paramétrica en `test_validaciones.py` para cruzar los módulos del servidor (`imperativo`, `objetos`) con clases de equivalencia de extensiones válidas e inválidas.
+  - Se parametrizó `test_api_ping.py` para validar versiones estrictas vs. versiones desactualizadas/adulteradas.
+- **Valores Límite (Boundary Value Analysis):** Se implementaron pruebas en `test_api_upload.py` evaluando los límites del servidor: archivos vacíos (0 bytes), archivos mínimos (1 KB) y archivos que superan el límite físico (Ej: > 5MB, forzando HTTP 413 Payload Too Large).
+- **Caminos Tristes (Sad Paths):** Se implementó validación de resiliencia en la API ante formularios incompletos (ausencia de campos requeridos iterativamente), intentos con PIN inválido (HTTP 403) y fallas de sistema operativo (HTTP 500 encapsulado en JSON).
+- **Consolidación del Camino Feliz (End-to-End):** Se unificó la suite de persistencia en `test_persistencia.py`. El test maestro ahora valida simultáneamente el guardado físico del archivo, la escritura atómica en el CSV (manejando correctamente delimitadores `;`) y la generación de la traza de auditoría en el logger.
+- **Hardening de UI Tests:** Se añadieron aserciones visuales explícitas en `test_cliente.py` (B3, B4). Las pruebas ahora inspeccionan el texto inyectado en los componentes de CustomTkinter para garantizar que el alumno recibe feedback visual ante errores catastróficos.
+
 ## [v0.2.0] - 2026-10-10
 
 ### ⚙️ Infraestructura y Mantenimiento
