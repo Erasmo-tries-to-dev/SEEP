@@ -152,6 +152,21 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
 
     @app.route("/ping", methods=["GET"])
     def ping():
+        version_cliente = request.args.get("version", "")
+
+        if version_cliente != seep_config.VERSION_SEEP:
+            logging.warning(
+                f"Ping rechazado por versión incompatible: {version_cliente} vs {seep_config.VERSION_SEEP}"
+            )
+            return (
+                jsonify(
+                    {
+                        "error": f"Versión del cliente ({version_cliente}) incompatible. El servidor requiere la versión {seep_config.VERSION_SEEP}. Pedí el nuevo programa."
+                    }
+                ),
+                426,
+            )
+
         return jsonify({"status": "ok", "mensaje": "Servidor activo"}), 200
 
     @app.route("/upload", methods=["POST"])
