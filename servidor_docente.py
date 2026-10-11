@@ -53,10 +53,19 @@ def obtener_ip_local():
 
 
 def limpiar_cadena(texto):
-    """Sanitiza una cadena de texto para uso seguro en Windows."""
+    """Sanitiza una cadena de texto para uso seguro en Windows y evita inyecciones."""
+    if not texto:
+        return ""
+
+    # S3 y S9: Eliminar caracteres nulos, saltos de línea y tabulaciones (para proteger la consola y el OS)
+    texto = (
+        texto.replace("\0", "").replace("\n", "").replace("\r", "").replace("\t", "_")
+    )
     texto = texto.replace(" ", "_").replace("/", "-")
+
     for caracter_invalido in ["<", ">", ":", '"', "\\", "|", "?", "*"]:
         texto = texto.replace(caracter_invalido, "")
+
     return texto.strip()
 
 
