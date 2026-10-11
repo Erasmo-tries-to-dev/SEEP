@@ -3,7 +3,7 @@
 Todas las mejoras notables de este proyecto se documentarán en este archivo.
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
-## [v0.3.1] - 2026-10-11 - en curso
+## [v0.4.0] - 2026-10-11 - en curso
 
 ### Seguridad
 
