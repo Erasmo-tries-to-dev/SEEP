@@ -205,6 +205,7 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
                 ),
                 426,
             )
+
         pin_recibido = request.form.get("pin")
         apellidos = request.form.get("apellidos")
         nombres = request.form.get("nombres")
@@ -220,9 +221,29 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
             )
             return jsonify({"error": "Faltan datos requeridos"}), 400
 
+        # S9 y S3: Sanitizamos inmediatamente todo lo que viene del alumno
+        apellidos_seguro = limpiar_cadena(apellidos)
+        nombres_seguro = limpiar_cadena(nombres)
+        id_seguro = limpiar_cadena(identificador)
+        hostname_seguro = limpiar_cadena(hostname_cliente)
+
+        # S9: Bloqueamos peticiones con longitudes extremas (Buffer/FileSystem protection)
+        if (
+            len(apellidos_seguro) > 80
+            or len(nombres_seguro) > 80
+            or len(id_seguro) > 30
+        ):
+            logging.warning(
+                f"Payload rechazado por longitud extrema desde IP: {ip_cliente}"
+            )
+            return (
+                jsonify({"error": "Los campos exceden la longitud máxima permitida"}),
+                400,
+            )
+
         if pin_recibido != current_app.config["PIN"]:
             logging.warning(
-                f"PIN incorrecto ingresado por {apellidos} ({identificador}) desde IP: {ip_cliente}"
+                f"PIN incorrecto ingresado por {apellidos_seguro} ({id_seguro}) desde IP: {ip_cliente}"
             )
             return jsonify({"error": "PIN incorrecto"}), 403
 
@@ -235,13 +256,10 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
         )
         if not es_valido:
             logging.warning(
-                f"Extensión inválida enviada por {apellidos} ({identificador})"
+                f"Extensión inválida enviada por {apellidos_seguro} ({id_seguro})"
             )
             return jsonify({"error": resultado_validacion}), 400
 
-        apellidos_seguro = limpiar_cadena(apellidos)
-        nombres_seguro = limpiar_cadena(nombres)
-        id_seguro = limpiar_cadena(identificador)
         momento_entrega = datetime.now()
 
         timestamp = momento_entrega.strftime("%Y%m%d_%H%M%S_%f")
@@ -249,6 +267,7 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
 
         carpeta_destino = current_app.config["CARPETA_ENTREGAS"]
         nombre_final = f"{apellidos_seguro}_{nombres_seguro}_{id_seguro}_{timestamp}{resultado_validacion}"
+
         # Define la ruta final y una ruta temporal
         ruta_guardado = os.path.join(carpeta_destino, nombre_final)
         ruta_temporal = ruta_guardado + ".tmp"
@@ -260,24 +279,25 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
             archivo.save(ruta_temporal)
 
             # Guardado Atómico: Renombra de .tmp a la extensión final
-
             os.replace(ruta_temporal, ruta_guardado)
 
+            # Usamos las variables seguras para el CSV
             datos_auditoria = [
                 hora_legible,
                 modulo_activo,
-                identificador,
-                apellidos,
-                nombres,
+                id_seguro,
+                apellidos_seguro,
+                nombres_seguro,
                 ip_cliente,
-                hostname_cliente,
+                hostname_seguro,
                 hash_archivo,
                 nombre_final,
             ]
             registrar_en_csv(datos_auditoria)
 
+            # S3: El log a consola ahora usa cadenas estériles, imposible inyectar \n
             logging.info(
-                f"NUEVA ENTREGA: {apellidos} {nombres} | DNI/Legajo: {id_seguro} | PC: {hostname_cliente} | IP: {ip_cliente}"
+                f"NUEVA ENTREGA: {apellidos_seguro} {nombres_seguro} | DNI/Legajo: {id_seguro} | PC: {hostname_seguro} | IP: {ip_cliente}"
             )
             return (
                 jsonify(
@@ -294,8 +314,10 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
                 except Exception:
                     pass  # Ignora errores de borrado durante una excepción mayor
 
+            # S3: También usamos la variable segura en caso de error
             logging.error(
-                f"ERROR GRAVE guardando entrega de {apellidos}: {str(e)}", exc_info=True
+                f"ERROR GRAVE guardando entrega de {apellidos_seguro}: {str(e)}",
+                exc_info=True,
             )
             return jsonify({"error": f"Error interno al guardar: {str(e)}"}), 500
 

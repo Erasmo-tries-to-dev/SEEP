@@ -9,6 +9,9 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
 
 - **Guardado Atómico:** Se implementó el guardado atómico en la ruta `/upload`. Las entregas ahora se escriben en disco con una extensión temporal (`.tmp`) y solo se renonmbran al formato final si la escritura fue 100% exitosa. Esto erradica el riesgo de archivos corruptos o truncados si el servidor pierde energía o se interrumpe durante la recepción (Resuelve vulnerabilidad de infraestructura).
 - **Manejo de Puerto Ocupado:** Se agregó captura de la excepción `OSError` al arrancar el servidor para evitar cierres abruptos y _tracebacks_. Ahora el sistema detecta si el puerto está en uso y muestra instrucciones claras al docente para solucionarlo.
+- **Prevención de Inyección CSV (DDE):** Se neutralizó el riesgo de inyección de fórmulas (S4). Si un alumno envía un texto que comienza con `=`, `+`, `-` o `@`, el servidor lo escapa automáticamente al guardarlo en el CSV, evitando que Excel ejecute macros o enlaces maliciosos.
+- **Protección contra Inyección en Consola:** Se robusteció la sanitización de inputs (S3 y S9). El servidor ahora elimina caracteres nulos (`\0`), saltos de línea y tabulaciones, impidiendo que un atacante falsifique registros visuales en la consola del docente.
+- **Límites de Longitud (Buffer Protection):** Se implementó una validación estricta de longitud en el endpoint de subida (S9). Los nombres/apellidos mayores a 80 caracteres o identificadores mayores a 30 caracteres son rechazados con HTTP 400, protegiendo el sistema de archivos y la memoria del servidor.
 
 ## [v0.3.0] - 2026-10-11
 
