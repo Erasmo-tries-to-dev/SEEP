@@ -1,42 +1,71 @@
+import os
+import sys
+import subprocess
 import pytest
 from unittest.mock import patch, MagicMock
 from cliente_alumno import AppAlumno
 
+# --- CAMINOS TRISTES: Resiliencia de la Interfaz Gráfica ---
 
-def test_b3_error_inesperado():
-    """Prueba que un error genérico no rompa la interfaz por NameError (Bug B3)"""
+
+def test_ui_resiliencia_error_red():
+    """
+    Verifica el Bug B3: Si la red está caída o inaccesible (requests lanza Exception),
+    el cliente no debe crashear por NameError, sino mostrar un mensaje en la UI.
+    """
     app = AppAlumno()
     app.mostrar_estado("Conectando con la PC del docente...", "#f1c40f")
 
+    # Simulamos que el cable de red está desconectado
     with patch("requests.get", side_effect=Exception("Falla_catastrofica_simulada")):
-        app.enviar_red("127.0.0.1", "0000", "Perez", "Juan", "123", "dummy.pas")
+        app.enviar_red("127.0.0.1", "0000", "Lovelace", "Ada", "123", "dummy.pas")
 
         app.procesar_cola()
         app.update()
 
         texto_pantalla = app.lbl_estado.cget("text")
 
+    # Verificamos que la interfaz atrapó el error y se lo mostró al alumno
+    assert (
+        "Error" in texto_pantalla or "Falla" in texto_pantalla
+    ), "La UI no reflejó el error de red adecuadamente"
 
-def test_b4_error_json_500():
-    """Prueba que una caída del servidor (500 HTML) no rompa el cliente (Bug B4)"""
+
+def test_ui_resiliencia_html_500():
+    """
+    Verifica el Bug B4: Si el servidor crashea y devuelve un 500 con HTML crudo,
+    el cliente debe atraparlo sin romper la interfaz al intentar decodificar JSON.
+    """
     app = AppAlumno()
     app.mostrar_estado("Conectando con la PC del docente...", "#f1c40f")
 
+    # Simulamos la respuesta de un servidor Flask que explotó (devuelve HTML, no JSON)
     mock_response = MagicMock()
     mock_response.status_code = 500
     mock_response.json.side_effect = ValueError(
         "Excepción simulada al decodificar JSON"
     )
+    mock_response.text = "<html><body>Internal Server Error</body></html>"
 
     with patch("requests.get"):
         with patch("requests.post", return_value=mock_response):
             with patch("builtins.open", MagicMock()):
-                app.enviar_red("127.0.0.1", "0000", "Perez", "Juan", "123", "dummy.pas")
+                app.enviar_red(
+                    "127.0.0.1", "0000", "Lovelace", "Ada", "123", "dummy.pas"
+                )
 
                 app.procesar_cola()
                 app.update()
 
                 texto_pantalla = app.lbl_estado.cget("text")
+
+    # Verificamos que la interfaz sobrevivió y mostró una alerta al usuario
+    assert (
+        "Error" in texto_pantalla or "servidor" in texto_pantalla.lower()
+    ), "La UI no manejó correctamente el código 500"
+
+
+# --- CAMINOS FELICES: Escritura en Sistema de Archivos ---
 
 
 def test_cliente_loggea_errores_en_archivo_fisico():
