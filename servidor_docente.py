@@ -9,6 +9,7 @@ import sys
 import errno
 import sqlite3
 import customtkinter as ctk
+from tkinter import messagebox
 
 # Configuración de Logging para el servidor (Consola + Archivo físico)
 logging.basicConfig(
@@ -75,44 +76,6 @@ def calcular_hash(archivo):
         sha256_hash.update(byte_block)
     archivo.seek(0)
     return sha256_hash.hexdigest()
-
-
-def configurar_sesion():
-    """Menú interactivo para configurar la sesión exacta del examen."""
-    print("=" * 60)
-    print(" CONFIGURACIÓN DE LA SESIÓN DE EXAMEN ")
-    print("=" * 60)
-
-    # 1. Módulo
-    while True:
-        print(" Módulos: 1. Imperativo | 2. Objetos | 3. Concurrente")
-        opcion = input(" Seleccione el módulo (1-3): ").strip()
-        if opcion == "1":
-            modulo = "imperativo"
-            break
-        elif opcion == "2":
-            modulo = "objetos"
-            break
-        elif opcion == "3":
-            modulo = "concurrente"
-            break
-        print(" [!] Opción inválida. Ingrese 1, 2 o 3.\n")
-
-    # 2. Turno
-    while True:
-        turno = input(" Ingrese el turno (ej. TA, TB, TC): ").strip().upper()
-        if turno:
-            break
-        print(" [!] El turno no puede estar vacío.\n")
-
-    # 3. Aula
-    while True:
-        aula = input(" Ingrese el aula (ej. 3, 10A, Lab4): ").strip().upper()
-        if aula:
-            break
-        print(" [!] El aula no puede estar vacía.\n")
-
-    return modulo, turno, aula
 
 
 def inicializar_entorno(modulo, turno, aula):
@@ -405,73 +368,241 @@ def crear_app(modulo_elegido, pin_fijo, carpeta_elegida, ruta_db):
 
 
 def ejecutar_waitress(app):
-    """Ejecuta el servidor web en un hilo secundario y maneja errores de red."""
+    """Ejecuta el servidor web en un hilo secundario y maneja errores de red visualmente."""
     try:
         serve(app, host="0.0.0.0", port=seep_config.PUERTO_API)
     except OSError as e:
         es_puerto_ocupado = (getattr(e, "errno", None) == errno.EADDRINUSE) or (
             getattr(e, "winerror", None) == 10048
         )
-        if es_puerto_ocupado:
-            logging.error(
-                f"El puerto {seep_config.PUERTO_API} ya está ocupado. Cierre otra instancia de SEEP."
-            )
-        else:
-            logging.error(
-                f"Error de sistema operativo al iniciar el servidor: {str(e)}"
-            )
 
-        # Si falla el servidor de fondo, matamos toda la aplicación
+        if es_puerto_ocupado:
+            mensaje = (
+                f"El puerto {seep_config.PUERTO_API} ya está ocupado por otro programa.\n\n"
+                "Esto casi siempre ocurre porque ya hay OTRA ventana de SEEP abierta "
+                "en esta computadora.\n\n"
+                "Solución:\n"
+                "1. Busque en la barra de tareas y cierre cualquier otro servidor.\n"
+                "2. Vuelva a abrir este programa."
+            )
+            # Muestra un pop-up crítico bloqueante
+            messagebox.showerror("❌ ERROR CRÍTICO - Puerto Ocupado", mensaje)
+        else:
+            mensaje = (
+                "Ocurrió un error inesperado a nivel de sistema operativo o red.\n\n"
+                f"Detalle técnico: {str(e)}\n\n"
+                "Sugerencia: Verifique su conexión de red o permisos de administrador."
+            )
+            messagebox.showerror("❌ ERROR CRÍTICO", mensaje)
+
+        # Una vez que el docente cierra el pop-up de error, matamos el proceso limpiamente
         os._exit(1)
 
 
 def arrancar_servidor():
     """
-    Punto de entrada principal. Configura la sesión por consola (temporal),
-    inicia Waitress en un hilo secundario y levanta la GUI en el principal.
+    Punto de entrada principal. Levanta la interfaz gráfica, permite configurar
+    la sesión visualmente y luego inicia Waitress de fondo.
     """
-    # 1. Configuración de la sesión (Por consola, hasta que hagamos el Paso 2)
-    modulo, turno, aula = configurar_sesion()
-    ruta_carpeta, ruta_db, pin_sesion = inicializar_entorno(modulo, turno, aula)
-
-    app = crear_app(
-        modulo_elegido=modulo,
-        pin_fijo=pin_sesion,
-        carpeta_elegida=ruta_carpeta,
-        ruta_db=ruta_db,
-    )
-    ip_local = obtener_ip_local()
-
-    # 2. Arrancar el servidor web en un hilo (daemon=True para que muera al cerrar la ventana)
-    hilo_web = threading.Thread(target=ejecutar_waitress, args=(app,), daemon=True)
-    hilo_web.start()
-
-    # 3. Arrancar la interfaz gráfica principal
     ctk.set_appearance_mode("System")
     ctk.set_default_color_theme("blue")
 
     ventana = ctk.CTk()
-    ventana.title(f"SEEP - Panel Docente | Módulo: {modulo.upper()} | Aula: {aula}")
+    ventana.title("SEEP - Configuración Inicial")
     ventana.geometry("700x500")
 
-    # Contenido temporal de prueba
-    frame = ctk.CTkFrame(ventana)
-    frame.pack(pady=40, padx=40, fill="both", expand=True)
+    # --- PANTALLA 1: CONFIGURACIÓN ---
+    frame_config = ctk.CTkFrame(ventana)
+    frame_config.pack(pady=40, padx=40, fill="both", expand=True)
 
     ctk.CTkLabel(
-        frame, text="SERVIDOR ACTIVO", font=("Roboto", 24, "bold"), text_color="green"
+        frame_config, text="Configuración de la Sesión", font=("Roboto", 24, "bold")
     ).pack(pady=20)
-    ctk.CTkLabel(frame, text=f"IP: {ip_local}", font=("Roboto", 16)).pack(pady=5)
-    ctk.CTkLabel(frame, text=f"PIN: {pin_sesion}", font=("Roboto", 20, "bold")).pack(
-        pady=5
-    )
-    ctk.CTkLabel(frame, text=f"Carpeta: {ruta_carpeta}", font=("Roboto", 12)).pack(
-        pady=20
-    )
 
-    print(
-        "\n[INFO] Servidor web corriendo en segundo plano. Interfaz gráfica iniciada."
+    # Selector de Módulo
+    ctk.CTkLabel(frame_config, text="Módulo a evaluar:").pack(pady=(10, 0))
+    var_modulo = ctk.StringVar(value="imperativo")
+    combo_modulo = ctk.CTkOptionMenu(
+        frame_config,
+        values=["imperativo", "objetos", "concurrente"],
+        variable=var_modulo,
     )
+    combo_modulo.pack(pady=5)
+
+    # Input de Turno
+    ctk.CTkLabel(frame_config, text="Turno (ej. TA, TB):").pack(pady=(10, 0))
+    entrada_turno = ctk.CTkEntry(frame_config, placeholder_text="Ingrese turno...")
+    entrada_turno.pack(pady=5)
+
+    # Input de Aula
+    ctk.CTkLabel(frame_config, text="Aula (ej. Lab3):").pack(pady=(10, 0))
+    entrada_aula = ctk.CTkEntry(frame_config, placeholder_text="Ingrese aula...")
+    entrada_aula.pack(pady=5)
+
+    # Etiqueta para mostrar errores si dejan campos vacíos
+    lbl_error = ctk.CTkLabel(frame_config, text="", text_color="red")
+    lbl_error.pack(pady=5)
+
+    # --- PANTALLA 2: DASHBOARD (Oculta al inicio) ---
+    frame_dashboard = ctk.CTkFrame(ventana)
+
+    # Variables de estado atadas a la ventana para evitar usar variables globales
+    ventana.ruta_db = None
+    ventana.ultimo_conteo = -1
+
+    # Encabezado del dashboard
+    lbl_titulo_dash = ctk.CTkLabel(
+        frame_dashboard,
+        text="SERVIDOR ACTIVO",
+        font=("Roboto", 24, "bold"),
+        text_color="green",
+    )
+    lbl_info_dash = ctk.CTkLabel(frame_dashboard, text="", font=("Roboto", 18, "bold"))
+    lbl_ruta_dash = ctk.CTkLabel(frame_dashboard, text="", font=("Roboto", 12))
+
+    lbl_titulo_dash.pack(pady=10)
+    lbl_info_dash.pack(pady=5)
+    lbl_ruta_dash.pack(pady=(0, 10))
+
+    # La grilla de entregas (Scrollable Frame)
+    frame_lista = ctk.CTkScrollableFrame(
+        frame_dashboard, label_text="Entregas Recibidas (Actualización en tiempo real)"
+    )
+    frame_lista.pack(pady=10, padx=20, fill="both", expand=True)
+
+    def actualizar_grilla():
+        """Consulta SQLite y redibuja la lista si hay entregas nuevas."""
+        if not ventana.ruta_db:
+            return
+
+        try:
+            conn = sqlite3.connect(ventana.ruta_db)
+            cursor = conn.cursor()
+
+            # Optimizamos: solo redibujamos si el conteo de entregas activas cambió
+            cursor.execute("SELECT COUNT(*) FROM entregas WHERE es_activa = 1")
+            conteo_actual = cursor.fetchone()[0]
+
+            if conteo_actual != ventana.ultimo_conteo:
+                ventana.ultimo_conteo = conteo_actual
+
+                # Limpiamos todos los datos viejos de la grilla
+                for widget in frame_lista.winfo_children():
+                    widget.destroy()
+
+                # Dibujamos los encabezados
+                encabezados = [
+                    "Legajo/DNI",
+                    "Apellidos",
+                    "Nombres",
+                    "Hora",
+                    "Comprobante",
+                    "Alerta IP",
+                ]
+                for col, texto in enumerate(encabezados):
+                    ctk.CTkLabel(
+                        frame_lista, text=texto, font=("Roboto", 14, "bold")
+                    ).grid(row=0, column=col, padx=10, pady=5, sticky="w")
+
+                # Buscamos las entregas activas cruzando las dos tablas
+                cursor.execute("""
+                    SELECT a.legajo, a.apellidos, a.nombres, e.timestamp, e.codigo_comprobante, a.ip_vinculada, e.ip_origen
+                    FROM entregas e
+                    JOIN alumnos a ON e.legajo = a.legajo
+                    WHERE e.es_activa = 1
+                    ORDER BY e.timestamp DESC
+                """)
+
+                # Dibujamos fila por fila
+                for fila_idx, fila_datos in enumerate(cursor.fetchall(), start=1):
+                    (
+                        legajo,
+                        apellidos,
+                        nombres,
+                        timestamp,
+                        comprobante,
+                        ip_vinculada,
+                        ip_origen,
+                    ) = fila_datos
+
+                    # Extraemos solo HH:MM:SS del timestamp "YYYY-MM-DD HH:MM:SS.mmmmmm"
+                    hora_str = str(timestamp)[11:19]
+
+                    # Chequeo de seguridad visual (Suplantación S1)
+                    alerta_ip = "⚠️ Difiere" if ip_vinculada != ip_origen else "OK"
+                    color_ip = "orange" if ip_vinculada != ip_origen else "gray"
+
+                    ctk.CTkLabel(frame_lista, text=legajo).grid(
+                        row=fila_idx, column=0, padx=10, pady=2, sticky="w"
+                    )
+                    ctk.CTkLabel(frame_lista, text=apellidos).grid(
+                        row=fila_idx, column=1, padx=10, pady=2, sticky="w"
+                    )
+                    ctk.CTkLabel(frame_lista, text=nombres).grid(
+                        row=fila_idx, column=2, padx=10, pady=2, sticky="w"
+                    )
+                    ctk.CTkLabel(frame_lista, text=hora_str).grid(
+                        row=fila_idx, column=3, padx=10, pady=2, sticky="w"
+                    )
+                    ctk.CTkLabel(
+                        frame_lista, text=comprobante, font=("Consolas", 12)
+                    ).grid(row=fila_idx, column=4, padx=10, pady=2, sticky="w")
+                    ctk.CTkLabel(frame_lista, text=alerta_ip, text_color=color_ip).grid(
+                        row=fila_idx, column=5, padx=10, pady=2, sticky="w"
+                    )
+
+            conn.close()
+        except Exception as e:
+            logging.error(f"Error actualizando grilla: {e}")
+
+        # Programamos el próximo chequeo en 3000 ms (3 segundos)
+        ventana.after(3000, actualizar_grilla)
+
+    def iniciar_sistema():
+        """Valida los datos, arranca el servidor y cambia la pantalla."""
+        turno = entrada_turno.get().strip().upper()
+        aula = entrada_aula.get().strip().upper()
+        modulo = var_modulo.get()
+
+        if not turno or not aula:
+            lbl_error.configure(text="Error: Debe completar el Turno y el Aula.")
+            return
+
+        # 1. Inicializamos entorno y base de datos local
+        ruta_carpeta, ruta_db, pin_sesion = inicializar_entorno(modulo, turno, aula)
+        ventana.ruta_db = ruta_db  # Guardamos la ruta para que la lea la grilla
+
+        app = crear_app(
+            modulo_elegido=modulo,
+            pin_fijo=pin_sesion,
+            carpeta_elegida=ruta_carpeta,
+            ruta_db=ruta_db,
+        )
+        ip_local = obtener_ip_local()
+
+        # 2. Arrancar servidor web en hilo secundario
+        hilo_web = threading.Thread(target=ejecutar_waitress, args=(app,), daemon=True)
+        hilo_web.start()
+
+        # 3. Transición de interfaz gráfica
+        ventana.title(f"SEEP - Panel Docente | Módulo: {modulo.upper()} | Aula: {aula}")
+        frame_config.pack_forget()
+        frame_dashboard.pack(pady=20, padx=20, fill="both", expand=True)
+
+        # 4. Poblar el dashboard con la información de la sesión
+        lbl_info_dash.configure(text=f"IP: {ip_local}   |   PIN: {pin_sesion}")
+        lbl_ruta_dash.configure(text=f"Guardando en: {ruta_carpeta}")
+
+        # 5. Disparamos el bucle infinito y no-bloqueante de la grilla
+        actualizar_grilla()
+
+    btn_iniciar = ctk.CTkButton(
+        frame_config,
+        text="Iniciar Servidor",
+        command=iniciar_sistema,
+        font=("Roboto", 14, "bold"),
+    )
+    btn_iniciar.pack(pady=20)
 
     ventana.mainloop()
 
