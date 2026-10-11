@@ -79,13 +79,22 @@ def calcular_hash(archivo):
 
 
 def registrar_en_csv(datos_fila):
-    """Guarda los datos de la entrega en un archivo CSV."""
+    """Guarda los datos de la entrega en un archivo CSV protegiendo contra inyección."""
     directorio_base = obtener_directorio_base()
     nombre_archivo = f"registro_entregas_{current_app.config['MODULO']}.csv"
 
     nombre_archivo_csv = current_app.config.get(
         "ARCHIVO_CSV", os.path.join(directorio_base, nombre_archivo)
     )
+
+    # S4: Prevenir Inyección de CSV (DDE) en Excel
+    # Si algún campo empieza con fórmulas, lo forzamos a ser texto plano
+    fila_segura = []
+    for campo in datos_fila:
+        texto_campo = str(campo)
+        if texto_campo.startswith(("=", "+", "-", "@")):
+            texto_campo = "'" + texto_campo
+        fila_segura.append(texto_campo)
 
     with csv_lock:
         archivo_existe = os.path.isfile(nombre_archivo_csv)
@@ -108,7 +117,7 @@ def registrar_en_csv(datos_fila):
                             "Nombre de Archivo",
                         ]
                     )
-                writer.writerow(datos_fila)
+                writer.writerow(fila_segura)
         except PermissionError:
             logging.warning(
                 "No se pudo escribir en el CSV porque está abierto en otro programa (ej. Excel)."
