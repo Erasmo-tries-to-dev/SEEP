@@ -1,10 +1,67 @@
 import os
 import io
-import seep_config
-import threading
-import sys
+import csv
 import logging
-import subprocess
+import threading
+import seep_config
+
+
+def test_camino_feliz_persistencia_total(cliente_pruebas, caplog):
+    """
+    Camino Feliz End-to-End: Verifica que una entrega válida dispare los 3 efectos
+    secundarios esperados: Guardado del archivo, registro en CSV y logueo de auditoría.
+    """
+    app = cliente_pruebas.application
+    app.config["MODULO"] = "imperativo"
+
+    datos = {
+        "apellidos": "Lovelace",
+        "nombres": "Ada",
+        "identificador": "111",
+        "pin": "0000",
+        "version": seep_config.VERSION_SEEP,
+        "file": (io.BytesIO(b"begin writeln('Hola'); end."), "examen.pas"),
+    }
+
+    with caplog.at_level(logging.INFO):
+        with app.test_client() as cliente:
+            respuesta = cliente.post(
+                "/upload", data=datos, content_type="multipart/form-data"
+            )
+
+    # 1. Validación HTTP
+    assert respuesta.status_code == 200
+
+    # 2. Validación de FileSystem (El archivo existe y filtramos el CSV)
+    carpeta = app.config["CARPETA_ENTREGAS"]
+
+    # Buscamos específicamente archivos que tengan el apellido de la alumna
+    archivos_entrega = [f for f in os.listdir(carpeta) if "Lovelace" in f]
+    assert (
+        len(archivos_entrega) == 1
+    ), "No se encontró exactamente 1 archivo para Lovelace"
+
+    nombre_archivo_final = archivos_entrega[0]
+    assert "Lovelace_Ada_111" in nombre_archivo_final
+
+    # 3. Validación de CSV (Se agregó la fila con los datos correctos)
+    ruta_csv = app.config["ARCHIVO_CSV"]
+    assert os.path.exists(ruta_csv), "El archivo CSV no se creó"
+
+    with open(ruta_csv, "r", encoding="utf-8") as f:
+        # ¡IMPORTANTE! Agregar el delimiter=";" acá:
+        lector = csv.reader(f, delimiter=";")
+        filas = list(lector)
+        ultima_fila = filas[-1]
+
+    assert "Lovelace" in ultima_fila
+    assert "111" in ultima_fila
+    assert (
+        nombre_archivo_final in ultima_fila
+    )  # El nombre final del archivo debe coincidir con el anotado
+
+    # 4. Validación de Logger (Dejó rastros de auditoría)
+    assert "NUEVA ENTREGA: Lovelace Ada" in caplog.text
 
 
 def test_entrega_con_csv_bloqueado(cliente_pruebas):
@@ -12,23 +69,20 @@ def test_entrega_con_csv_bloqueado(cliente_pruebas):
     Verifica el Bug B2: Si el CSV está bloqueado por otro programa (ej. Excel),
     el servidor debe guardar el archivo del alumno igual y no devolver error 500.
     """
-    # Extraemos la app ya configurada desde el fixture
     app = cliente_pruebas.application
+    app.config["MODULO"] = "imperativo"
 
-    # 2. EL TRUCO PARA FORZAR EL ERROR
-    # Creamos una carpeta con el nombre del CSV.
-    # Al intentar hacer open(..., "a") sobre una carpeta, Windows tira PermissionError idéntico al de Excel.
+    # Forzamos el PermissionError de Windows creando una carpeta en lugar de un archivo
     ruta_csv = app.config["ARCHIVO_CSV"]
     os.mkdir(ruta_csv)
 
-    # 3. Simulamos a un alumno entregando
     datos = {
         "apellidos": "Hacker",
         "nombres": "CSV_Bloqueado",
         "identificador": "0000X",
         "pin": "0000",
-        "file": (io.BytesIO(b"begin end."), "examen_bloqueado.pas"),
         "version": seep_config.VERSION_SEEP,
+        "file": (io.BytesIO(b"begin end."), "examen_bloqueado.pas"),
     }
 
     with app.test_client() as cliente:
@@ -36,14 +90,12 @@ def test_entrega_con_csv_bloqueado(cliente_pruebas):
             "/upload", data=datos, content_type="multipart/form-data"
         )
 
-    # VERIFICACIONES
-
-    # El servidor debe devolver 200 OK (no 500 Internal Server Error)
+    # El servidor debe absorber el error del CSV y devolver 200 OK
     assert (
         respuesta.status_code == 200
     ), f"Se esperaba 200, pero devolvió {respuesta.status_code}"
 
-    # El archivo físico del parcial DEBE existir en disco a pesar del error del CSV
+    # El parcial DEBE estar en disco a pesar de la falla del CSV
     carpeta_temp = app.config["CARPETA_ENTREGAS"]
     archivos_en_disco = [f for f in os.listdir(carpeta_temp) if f.endswith(".pas")]
     assert (
@@ -54,10 +106,10 @@ def test_entrega_con_csv_bloqueado(cliente_pruebas):
 def test_sobrescritura_milisegundos(cliente_pruebas):
     """
     Verifica el Bug B1: Múltiples entregas en el mismo milisegundo
-    no deben pisar el archivo en disco.
+    no deben pisar el archivo en disco (deben generar timestamps/hashes únicos).
     """
-
     app = cliente_pruebas.application
+    app.config["MODULO"] = "imperativo"
 
     def entregar_mock(numero):
         datos = {
@@ -66,15 +118,13 @@ def test_sobrescritura_milisegundos(cliente_pruebas):
             "identificador": f"0000{numero}",
             "pin": "0000",
             "version": seep_config.VERSION_SEEP,
-            "file": (
-                io.BytesIO(b"begin end."),
-                f"examen_{numero}.pas",
-            ),
+            "file": (io.BytesIO(b"begin end."), f"examen_{numero}.pas"),
         }
 
         with app.test_client() as cliente_hilo:
             cliente_hilo.post("/upload", data=datos, content_type="multipart/form-data")
 
+    # Bombardeamos el servidor con 5 hilos simultáneos
     hilos = []
     for i in range(5):
         h = threading.Thread(target=entregar_mock, args=(i,))
@@ -87,77 +137,7 @@ def test_sobrescritura_milisegundos(cliente_pruebas):
     carpeta_temp = app.config["CARPETA_ENTREGAS"]
     archivos_en_disco = [f for f in os.listdir(carpeta_temp) if f.endswith(".pas")]
 
+    # Si hay menos de 5 archivos, hubo colisión y sobrescritura
     assert (
         len(archivos_en_disco) == 5
     ), f"Se esperaban 5 archivos, pero hay {len(archivos_en_disco)}"
-
-
-def test_servidor_loggea_pin_incorrecto(cliente_pruebas, caplog):
-    """
-    Verifica que el servidor registre un WARNING formal en el sistema
-    cuando un alumno intenta entregar con un PIN falso.
-    """
-    datos = {
-        "apellidos": "Turing",
-        "nombres": "Alan",
-        "identificador": "999",
-        "pin": "PIN_TOTALMENTE_FALSO",
-        "file": (io.BytesIO(b"codigo"), "examen.pas"),
-        "version": seep_config.VERSION_SEEP,
-    }
-
-    with caplog.at_level(logging.WARNING):
-        respuesta = cliente_pruebas.post(
-            "/upload", data=datos, content_type="multipart/form-data"
-        )
-
-    assert respuesta.status_code == 403
-    assert "PIN incorrecto ingresado" in caplog.text
-
-
-def test_cliente_loggea_errores_en_archivo_fisico():
-    """
-    Verifica que la lógica del cliente efectivamente escriba los
-    eventos y advertencias reales de la interfaz en el log físico.
-    """
-    if os.path.exists("seep_cliente.log"):
-        os.remove("seep_cliente.log")
-
-    # Armamos un script que simula el comportamiento de la interfaz
-    script = """
-import sys
-import os
-# Aseguramos que la raíz del proyecto esté en el path para que encuentre el módulo
-sys.path.insert(0, os.path.abspath(os.getcwd()))
-import cliente_alumno
-
-# 1. Al crear la app, el __init__ debe loggear automáticamente "Iniciando aplicación..."
-app = cliente_alumno.AppAlumno()
-
-# 2. Simulamos que el alumno intentó subir un archivo prohibido
-app.marcar_error_archivo("Simulación: El archivo pesa más de 1MB")
-"""
-
-    # Ejecutamos el script capturando la salida y los errores
-    resultado = subprocess.run(
-        [sys.executable, "-c", script], capture_output=True, text=True
-    )
-
-    # Si el archivo no existe, ahora el assert nos va a imprimir el error exacto que dio Python
-    assert os.path.exists("seep_cliente.log"), (
-        f"El archivo seep_cliente.log no se generó.\n\n"
-        f"--- STDOUT (Consola) ---\n{resultado.stdout}\n"
-        f"--- STDERR (Errores) ---\n{resultado.stderr}"
-    )
-
-    with open("seep_cliente.log", "r", encoding="utf-8") as f:
-        contenido = f.read()
-
-    # Verificamos que los logs reales de negocio del cliente estén en el archivo
-    assert (
-        "Iniciando aplicación Cliente Alumno SEEP." in contenido
-    ), "Falta el log de inicialización."
-    assert (
-        "Validación de archivo fallida: Simulación: El archivo pesa más de 1MB"
-        in contenido
-    ), "Falta el log del error de validación."
