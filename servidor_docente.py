@@ -8,6 +8,7 @@ import threading
 import sys
 import errno
 import sqlite3
+import customtkinter as ctk
 
 # Configuración de Logging para el servidor (Consola + Archivo físico)
 logging.basicConfig(
@@ -403,11 +404,33 @@ def crear_app(modulo_elegido, pin_fijo, carpeta_elegida, ruta_db):
     return app
 
 
+def ejecutar_waitress(app):
+    """Ejecuta el servidor web en un hilo secundario y maneja errores de red."""
+    try:
+        serve(app, host="0.0.0.0", port=seep_config.PUERTO_API)
+    except OSError as e:
+        es_puerto_ocupado = (getattr(e, "errno", None) == errno.EADDRINUSE) or (
+            getattr(e, "winerror", None) == 10048
+        )
+        if es_puerto_ocupado:
+            logging.error(
+                f"El puerto {seep_config.PUERTO_API} ya está ocupado. Cierre otra instancia de SEEP."
+            )
+        else:
+            logging.error(
+                f"Error de sistema operativo al iniciar el servidor: {str(e)}"
+            )
+
+        # Si falla el servidor de fondo, matamos toda la aplicación
+        os._exit(1)
+
+
 def arrancar_servidor():
     """
-    Inicializa la aplicación Flask, imprime la interfaz de consola para el docente
-    y arranca el servidor WSGI (Waitress) capturando posibles errores de red/puertos.
+    Punto de entrada principal. Configura la sesión por consola (temporal),
+    inicia Waitress en un hilo secundario y levanta la GUI en el principal.
     """
+    # 1. Configuración de la sesión (Por consola, hasta que hagamos el Paso 2)
     modulo, turno, aula = configurar_sesion()
     ruta_carpeta, ruta_db, pin_sesion = inicializar_entorno(modulo, turno, aula)
 
@@ -417,55 +440,40 @@ def arrancar_servidor():
         carpeta_elegida=ruta_carpeta,
         ruta_db=ruta_db,
     )
-
     ip_local = obtener_ip_local()
-    os.system("cls" if os.name == "nt" else "clear")
 
-    print("=" * 60)
-    print(
-        f" SISTEMA DE ENTREGA DE EXÁMENES PARCIALES (SEEP) - MÓDULO {modulo.upper()} "
+    # 2. Arrancar el servidor web en un hilo (daemon=True para que muera al cerrar la ventana)
+    hilo_web = threading.Thread(target=ejecutar_waitress, args=(app,), daemon=True)
+    hilo_web.start()
+
+    # 3. Arrancar la interfaz gráfica principal
+    ctk.set_appearance_mode("System")
+    ctk.set_default_color_theme("blue")
+
+    ventana = ctk.CTk()
+    ventana.title(f"SEEP - Panel Docente | Módulo: {modulo.upper()} | Aula: {aula}")
+    ventana.geometry("700x500")
+
+    # Contenido temporal de prueba
+    frame = ctk.CTkFrame(ventana)
+    frame.pack(pady=40, padx=40, fill="both", expand=True)
+
+    ctk.CTkLabel(
+        frame, text="SERVIDOR ACTIVO", font=("Roboto", 24, "bold"), text_color="green"
+    ).pack(pady=20)
+    ctk.CTkLabel(frame, text=f"IP: {ip_local}", font=("Roboto", 16)).pack(pady=5)
+    ctk.CTkLabel(frame, text=f"PIN: {pin_sesion}", font=("Roboto", 20, "bold")).pack(
+        pady=5
     )
-    print("=" * 60)
-    print(f" TURNO: {turno} | AULA: {aula}")
-    print(f" IP: {ip_local}")
-    print(f" PIN PARA ALUMNOS: {app.config['PIN']}")
-    print(f" LOS PARCIALES SE GUARDARÁN EN:\n   {ruta_carpeta}")
-    print(f" BASE DE DATOS (SQLite):\n   {ruta_db}")
-    print("=" * 60)
-    print("SEEP - ESPERANDO EXÁMENES...\n")
+    ctk.CTkLabel(frame, text=f"Carpeta: {ruta_carpeta}", font=("Roboto", 12)).pack(
+        pady=20
+    )
 
-    # Inicia el servidor usando el puerto de la configuración unificada
-    try:
-        serve(app, host="0.0.0.0", port=seep_config.PUERTO_API)
-    except OSError as e:
-        # Compara contra EADDRINUSE (Linux/Mac) o el WinError 10048 (Windows)
-        es_puerto_ocupado = (getattr(e, "errno", None) == errno.EADDRINUSE) or (
-            getattr(e, "winerror", None) == 10048
-        )
+    print(
+        "\n[INFO] Servidor web corriendo en segundo plano. Interfaz gráfica iniciada."
+    )
 
-        print("\n" + "!" * 60)
-        print(" ❌ ERROR CRÍTICO AL INICIAR EL SERVIDOR")
-        print("!" * 60)
-
-        if es_puerto_ocupado:
-            print(
-                f" El puerto {seep_config.PUERTO_API} ya está ocupado por otro programa."
-            )
-            print(" Esto casi siempre ocurre porque ya hay OTRA ventana negra de")
-            print(" SEEP abierta en esta computadora.")
-            print("\n Solución:")
-            print(" 1. Busque en la barra de tareas y cierre cualquier otro servidor.")
-            print(" 2. Vuelva a abrir este programa.")
-        else:
-            print(" Ocurrió un error inesperado a nivel de sistema operativo o red.")
-            print(f" Detalle técnico: {str(e)}")
-            print(
-                "\n Sugerencia: Verifique su conexión de red o permisos de administrador."
-            )
-
-        print("!" * 60 + "\n")
-        input(" Presione ENTER para cerrar esta ventana...")
-        sys.exit(1)
+    ventana.mainloop()
 
 
 if __name__ == "__main__":
