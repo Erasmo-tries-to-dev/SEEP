@@ -3,6 +3,12 @@
 Todas las mejoras notables de este proyecto se documentarán en este archivo.
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [v0.3.1] - 2026-10-11 - en curso
+
+### Seguridad
+
+- **Guardado Atómico:** Se implementó el guardado atómico en la ruta `/upload`. Las entregas ahora se escriben en disco con una extensión temporal (`.tmp`) y solo se renonmbran al formato final si la escritura fue 100% exitosa. Esto erradica el riesgo de archivos corruptos o truncados si el servidor pierde energía o se interrumpe durante la recepción (Resuelve vulnerabilidad de infraestructura).
+
 ## [v0.3.0] - 2026-10-11
 
 ### 🏗️ Arquitectura y Calidad de Software
@@ -12,7 +18,7 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
 
 ### 🧪 Pruebas Automatizadas (Técnicas de Caja Negra)
 
-- **Particiones Equivalentes (Equivalence Partitioning):** 
+- **Particiones Equivalentes (Equivalence Partitioning):**
   - Se implementó una matriz paramétrica en `test_validaciones.py` para cruzar los módulos del servidor (`imperativo`, `objetos`) con clases de equivalencia de extensiones válidas e inválidas.
   - Se parametrizó `test_api_ping.py` para validar versiones estrictas vs. versiones desactualizadas/adulteradas.
 - **Valores Límite (Boundary Value Analysis):** Se implementaron pruebas en `test_api_upload.py` evaluando los límites del servidor: archivos vacíos (0 bytes), archivos mínimos (1 KB) y archivos que superan el límite físico (Ej: > 5MB, forzando HTTP 413 Payload Too Large).

@@ -230,12 +230,20 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
 
         carpeta_destino = current_app.config["CARPETA_ENTREGAS"]
         nombre_final = f"{apellidos_seguro}_{nombres_seguro}_{id_seguro}_{timestamp}{resultado_validacion}"
+        # Define la ruta final y una ruta temporal
         ruta_guardado = os.path.join(carpeta_destino, nombre_final)
+        ruta_temporal = ruta_guardado + ".tmp"
 
         hash_archivo = calcular_hash(archivo)
 
         try:
-            archivo.save(ruta_guardado)
+            # 2. Guarda físicamente en el archivo temporal
+            archivo.save(ruta_temporal)
+
+            # Guardado Atómico: Renombra de .tmp a la extensión final
+
+            os.replace(ruta_temporal, ruta_guardado)
+
             datos_auditoria = [
                 hora_legible,
                 modulo_activo,
@@ -260,6 +268,13 @@ def crear_app(modulo_elegido, pin_fijo=None, carpeta_elegida=None):
             )
 
         except Exception as e:
+            # Si falló, intenta limpiar el archivo temporal por prolijidad
+            if os.path.exists(ruta_temporal):
+                try:
+                    os.remove(ruta_temporal)
+                except Exception:
+                    pass  # Ignora errores de borrado durante una excepción mayor
+
             logging.error(
                 f"ERROR GRAVE guardando entrega de {apellidos}: {str(e)}", exc_info=True
             )
