@@ -8,7 +8,7 @@ MAX_TAMANO_MB = 1
 MAX_TAMANO_BYTES = MAX_TAMANO_MB * 1024 * 1024
 TIMEOUT_PING = 3
 TIMEOUT_UPLOAD = 10
-VERSION_SEEP = "0.2.0"
+VERSION_SEEP = "0.5.0"
 
 
 def validar_extension(nombre_archivo, modulo):

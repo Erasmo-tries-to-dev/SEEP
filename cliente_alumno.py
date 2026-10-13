@@ -14,6 +14,7 @@ logging.basicConfig(
 )
 
 import seep_config
+from tkinter import messagebox
 import customtkinter as ctk
 from tkinter import filedialog
 
@@ -289,12 +290,29 @@ class AppAlumno(ctk.CTk):
                 )
 
                 if respuesta.status_code == 200:
-                    logging.info("Entrega confirmada por el servidor (HTTP 200).")
+                    datos_respuesta = respuesta.json()
+                    comprobante = datos_respuesta.get("comprobante", "SIN-CODIGO")
+
+                    logging.info(
+                        f"Entrega confirmada por el servidor. Comprobante: {comprobante}"
+                    )
+
                     self.cola_mensajes.put(
-                        lambda: self.mostrar_estado("✅ Entrega exitosa.", "#2ecc71")
+                        lambda c=comprobante: self.mostrar_estado(
+                            f"✅ Entregado. Comprobante: {c}", "#2ecc71"
+                        )
                     )
                     self.cola_mensajes.put(
-                        lambda: self.btn_enviar.configure(text="Entregado")
+                        lambda: self.btn_enviar.configure(
+                            text="Entregado", state="disabled"
+                        )
+                    )
+                    # Mostramos el comprobante gigante al alumno
+                    self.cola_mensajes.put(
+                        lambda c=comprobante: messagebox.showinfo(
+                            "Entrega Exitosa",
+                            f"El servidor recibió tu examen correctamente.\n\nTU COMPROBANTE ES:\n{c}\n\nPor favor, anotá este código o sacale una foto antes de cerrar el programa.",
+                        )
                     )
                 else:
                     try:
@@ -307,6 +325,15 @@ class AppAlumno(ctk.CTk):
                         )
 
                     logging.error(f"Rechazo del servidor: {texto_error}")
+
+                    # Si el servidor devolvió un 403 (candado de reentrega) mostramos un cartel evidente
+                    if respuesta.status_code == 403 and "autorización" in texto_error:
+                        self.cola_mensajes.put(
+                            lambda m=texto_error: messagebox.showwarning(
+                                "Reentrega Bloqueada", m
+                            )
+                        )
+
                     self.cola_mensajes.put(
                         lambda m=texto_error: self.mostrar_estado(
                             f"❌ Error: {m}", "#e74c3c"

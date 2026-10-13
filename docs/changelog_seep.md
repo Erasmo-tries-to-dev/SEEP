@@ -12,6 +12,16 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
 - **Control de Identidad:** Implementación de un esquema relacional que separa la identidad del alumno (`legajo`, `ip_vinculada`) del historial inmutable de sus entregas.
 - **Comprobante Criptográfico:** El servidor ahora genera un código corto derivado del hash SHA-256 que se devuelve al cliente tras una entrega exitosa.
 
+### Interfaz Docente y Control de Flujo (Fase 2)
+
+- **Panel de Control Nativo:** Se reemplazó la consola por una interfaz gráfica de escritorio utilizando `CustomTkinter`.
+- **Servidor No Bloqueante:** Se aisló el servidor WSGI (Waitress) en un hilo secundario (`threading.Thread`) para mantener la interfaz receptiva.
+- **Monitoreo en Tiempo Real:** Implementación de una grilla reactiva que consulta el historial completo de SQLite para mostrar nuevas entregas y actualizaciones de estado al instante.
+- **Control Estricto de Reentregas:** El servidor ahora bloquea por defecto múltiples envíos de un mismo alumno (HTTP 403).
+- **Gestión de Permisos:** Se agregó el botón "Habilitar" en el panel docente para autorizar reentregas individuales actualizando la base de datos de forma dinámica.
+- **Seguridad Visual:** La interfaz advierte visualmente (⚠️) si una reentrega se realiza desde una dirección IP distinta a la del envío original para prevenir suplantaciones.
+- **Manejo de Errores Críticos:** Integración de ventanas emergentes nativas (`messagebox`) para advertir sobre puertos bloqueados o errores de base de datos antes del cierre del sistema.
+
 ## [v0.4.0] - 2026-10-11
 
 ### Seguridad
