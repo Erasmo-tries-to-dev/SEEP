@@ -1,5 +1,5 @@
 """
-Módulo de Interfaz Gráfica (GUI) de SEEP.
+Módulo de Interfaz Gráfica (GUI) de SEEP-Servidor Docente.
 Contiene la clase principal que maneja las pantallas de configuración y el dashboard.
 """
 

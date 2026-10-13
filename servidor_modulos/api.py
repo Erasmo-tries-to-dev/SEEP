@@ -9,13 +9,15 @@ import errno
 import hashlib
 import logging
 import os
+import random
 import socket
+import sys
 from datetime import datetime
 from threading import Thread
-import sys
+
 from flask import Flask, current_app, jsonify, request
 from waitress import serve
-import random
+
 import seep_config
 from servidor_modulos import persistencia
 
@@ -23,19 +25,12 @@ CARACTERES_INVALIDOS_EN_NOMBRE = ["<", ">", ":", '"', "\\", "|", "?", "*"]
 
 
 def obtener_directorio_base():
-    """Devuelve la carpeta donde se encuentra el ejecutable o el script."""
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
 
-def _generar_pin():
-    """Genera un PIN numérico de 4 dígitos para la sesión."""
-    return str(random.randint(1000, 9999))
-
-
 def obtener_ip_local():
-    """Determina la dirección IP local de la máquina."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(("10.255.255.255", 1))
@@ -48,7 +43,6 @@ def obtener_ip_local():
 
 
 def limpiar_cadena(texto):
-    """Sanitiza un texto para usarlo de forma segura en nombres de archivo."""
     if not texto:
         return ""
     texto = (
@@ -61,7 +55,6 @@ def limpiar_cadena(texto):
 
 
 def calcular_hash(archivo):
-    """Calcula el hash SHA-256 de un archivo y rebobina el puntero."""
     sha256_hash = hashlib.sha256()
     for bloque in iter(lambda: archivo.read(4096), b""):
         sha256_hash.update(bloque)
@@ -69,8 +62,11 @@ def calcular_hash(archivo):
     return sha256_hash.hexdigest()
 
 
+def _generar_pin():
+    return str(random.randint(1000, 9999))
+
+
 def _respuesta_version_incompatible(version_cliente):
-    """Devuelve el JSON estándar para error 426 de versión vieja."""
     return (
         jsonify(
             {
@@ -82,8 +78,107 @@ def _respuesta_version_incompatible(version_cliente):
     )
 
 
+# -----------------------------------------------------------------------------
+# FUNCIONES AUXILIARES DE LA RUTA UPLOAD (Refactoring 4)
+# -----------------------------------------------------------------------------
+
+
+def _validar_datos_entrega(req, config):
+    """Fase 1: Extrae, sanitiza y valida el payload. Retorna (es_valido, datos/error, status_code)."""
+    version = req.form.get("version")
+    if version != seep_config.VERSION_SEEP:
+        return (
+            False,
+            {"error": f"Versión incompatible. Requiere {seep_config.VERSION_SEEP}."},
+            426,
+        )
+
+    pin = req.form.get("pin")
+    apellidos = req.form.get("apellidos")
+    nombres = req.form.get("nombres")
+    identificador = req.form.get("identificador")
+    archivo = req.files.get("file")
+
+    if not all([pin, apellidos, nombres, identificador, archivo]):
+        return False, {"error": "Faltan datos requeridos"}, 400
+
+    ap_seguro = limpiar_cadena(apellidos)
+    nom_seguro = limpiar_cadena(nombres)
+    id_seguro = limpiar_cadena(identificador)
+    host_seguro = limpiar_cadena(req.form.get("hostname", "Desconocido"))
+
+    if len(ap_seguro) > 80 or len(nom_seguro) > 80 or len(id_seguro) > 30:
+        return False, {"error": "Los campos exceden la longitud máxima permitida"}, 400
+
+    if pin != config["PIN"]:
+        return False, {"error": "PIN incorrecto"}, 403
+
+    modulo_activo = config["MODULO"]
+    es_valido, resultado_ext = seep_config.validar_extension(
+        archivo.filename, modulo_activo
+    )
+    if not es_valido:
+        return False, {"error": resultado_ext}, 400
+
+    momento_entrega = datetime.now()
+    timestamp = momento_entrega.strftime("%Y%m%d_%H%M%S_%f")
+    nombre_final = f"{ap_seguro}_{nom_seguro}_{id_seguro}_{timestamp}{resultado_ext}"
+
+    datos_limpios = {
+        "apellidos": ap_seguro,
+        "nombres": nom_seguro,
+        "identificador": id_seguro,
+        "hostname": host_seguro,
+        "ip": req.remote_addr,
+        "archivo": archivo,
+        "nombre_final": nombre_final,
+        "momento_entrega": momento_entrega,
+    }
+    return True, datos_limpios, 200
+
+
+def _verificar_politica_reentrega(ruta_db, legajo):
+    """Fase 2: Aplica regla de negocio de bloqueos. Retorna (puede_entregar, es_nuevo_alumno, msj_error)."""
+    resultado = persistencia.consultar_estado_alumno(ruta_db, legajo)
+    if resultado is None:
+        return True, True, ""
+
+    tiene_permiso = resultado[0]
+    if tiene_permiso == 0:
+        return (
+            False,
+            False,
+            "Ya registramos una entrega tuya. Si necesitás reentregar, pedile autorización al docente.",
+        )
+
+    return True, False, ""
+
+
+def _guardar_archivo_atomico(archivo, carpeta_destino, nombre_final):
+    """Fase 3: Escribe en disco de forma segura. Retorna (exito, hash_str, error_msg)."""
+    hash_archivo = calcular_hash(archivo)
+    ruta_guardado = os.path.join(carpeta_destino, nombre_final)
+    ruta_temporal = ruta_guardado + ".tmp"
+
+    try:
+        archivo.save(ruta_temporal)
+        os.replace(ruta_temporal, ruta_guardado)
+        return True, hash_archivo, ""
+    except Exception as e:
+        if os.path.exists(ruta_temporal):
+            try:
+                os.remove(ruta_temporal)
+            except Exception:
+                pass
+        return False, "", str(e)
+
+
+# -----------------------------------------------------------------------------
+# APPLICATION FACTORY Y RUTAS
+# -----------------------------------------------------------------------------
+
+
 def crear_app(modulo_elegido, pin_fijo, carpeta_elegida, ruta_db):
-    """Application Factory: Crea y configura Flask."""
     app = Flask(__name__)
     app.config["PIN"] = pin_fijo
     app.config["MODULO"] = modulo_elegido
@@ -95,142 +190,87 @@ def crear_app(modulo_elegido, pin_fijo, carpeta_elegida, ruta_db):
 
     @app.route("/ping", methods=["GET"])
     def ping():
-        version_cliente = request.args.get("version", "")
-        if version_cliente != seep_config.VERSION_SEEP:
-            logging.warning(
-                f"Ping rechazado por versión incompatible: {version_cliente} vs {seep_config.VERSION_SEEP}"
-            )
-            return _respuesta_version_incompatible(version_cliente)
+        version = request.args.get("version", "")
+        if version != seep_config.VERSION_SEEP:
+            return _respuesta_version_incompatible(version)
         return jsonify({"status": "ok", "mensaje": "Servidor activo"}), 200
 
     @app.route("/upload", methods=["POST"])
     def upload():
-        version_cliente = request.form.get("version")
-        if version_cliente != seep_config.VERSION_SEEP:
-            return _respuesta_version_incompatible(version_cliente)
+        """Endpoint orquestador de recepción de parciales."""
 
-        pin_recibido = request.form.get("pin")
-        apellidos = request.form.get("apellidos")
-        nombres = request.form.get("nombres")
-        identificador = request.form.get("identificador")
-        archivo = request.files.get("file")
-        hostname_cliente = request.form.get("hostname", "Desconocido")
-        ip_cliente = request.remote_addr
-
-        if not all([pin_recibido, apellidos, nombres, identificador, archivo]):
-            return jsonify({"error": "Faltan datos requeridos"}), 400
-
-        apellidos_seguro = limpiar_cadena(apellidos)
-        nombres_seguro = limpiar_cadena(nombres)
-        id_seguro = limpiar_cadena(identificador)
-        hostname_seguro = limpiar_cadena(hostname_cliente)
-
-        if (
-            len(apellidos_seguro) > 80
-            or len(nombres_seguro) > 80
-            or len(id_seguro) > 30
-        ):
-            return (
-                jsonify({"error": "Los campos exceden la longitud máxima permitida"}),
-                400,
-            )
-
-        if pin_recibido != current_app.config["PIN"]:
-            return jsonify({"error": "PIN incorrecto"}), 403
-
-        modulo_activo = current_app.config["MODULO"]
-        es_valido, resultado_validacion = seep_config.validar_extension(
-            archivo.filename, modulo_activo
-        )
+        # 1. Validación de Entrada
+        es_valido, payload, status = _validar_datos_entrega(request, current_app.config)
         if not es_valido:
-            return jsonify({"error": resultado_validacion}), 400
+            return jsonify(payload), status
 
-        momento_entrega = datetime.now()
-        timestamp = momento_entrega.strftime("%Y%m%d_%H%M%S_%f")
-        carpeta_destino = current_app.config["CARPETA_ENTREGAS"]
-        nombre_final = f"{apellidos_seguro}_{nombres_seguro}_{id_seguro}_{timestamp}{resultado_validacion}"
-        ruta_guardado = os.path.join(carpeta_destino, nombre_final)
-        ruta_temporal = ruta_guardado + ".tmp"
+        legajo = payload["identificador"]
+        ruta_db = current_app.config["RUTA_DB"]
 
-        hash_archivo = calcular_hash(archivo)
-        codigo_comprobante = hash_archivo[:6].upper()
-
-        try:
-            ruta_db = current_app.config["RUTA_DB"]
-
-            # Consultar base de datos a través del repositorio
-            resultado_alumno = persistencia.consultar_estado_alumno(ruta_db, id_seguro)
-            es_nuevo_alumno = False
-
-            if resultado_alumno is not None:
-                tiene_permiso = resultado_alumno[0]
-                if tiene_permiso == 0:
-                    logging.warning(
-                        f"Reentrega bloqueada para {apellidos_seguro} ({id_seguro}) - IP: {ip_cliente}"
-                    )
-                    return (
-                        jsonify(
-                            {
-                                "error": "Ya registramos una entrega tuya. Si necesitás reentregar, levantá la mano y pedile autorización al docente."
-                            }
-                        ),
-                        403,
-                    )
-            else:
-                es_nuevo_alumno = True
-
-            archivo.save(ruta_temporal)
-            os.replace(ruta_temporal, ruta_guardado)
-
-            # Persistir a través del repositorio
-            persistencia.registrar_entrega_exitosa(
-                ruta_db=ruta_db,
-                legajo=id_seguro,
-                apellidos=apellidos_seguro,
-                nombres=nombres_seguro,
-                ip_vinculada=ip_cliente,
-                hostname=hostname_seguro,
-                timestamp=momento_entrega,
-                nombre_archivo=nombre_final,
-                hash_archivo=hash_archivo,
-                codigo_comprobante=codigo_comprobante,
-                es_nuevo_alumno=es_nuevo_alumno,
+        # 2. Reglas de Negocio (Reentregas)
+        puede_entregar, es_nuevo, msj_error = _verificar_politica_reentrega(
+            ruta_db, legajo
+        )
+        if not puede_entregar:
+            logging.warning(
+                f"Reentrega bloqueada para {payload['apellidos']} ({legajo}) - IP: {payload['ip']}"
             )
+            return jsonify({"error": msj_error}), 403
 
-            logging.info(
-                f"NUEVA ENTREGA: {apellidos_seguro} {nombres_seguro} | DNI/Legajo: {id_seguro} | IP: {ip_cliente} | Comprobante: {codigo_comprobante}"
-            )
-            return (
-                jsonify(
-                    {
-                        "mensaje": f"Parcial entregado exitosamente",
-                        "comprobante": codigo_comprobante,
-                    }
-                ),
-                200,
-            )
-
-        except Exception as e:
-            if os.path.exists(ruta_temporal):
-                try:
-                    os.remove(ruta_temporal)
-                except Exception:
-                    pass
+        # 3. Persistencia en Disco Físico
+        exito_io, hash_archivo, msj_falla = _guardar_archivo_atomico(
+            payload["archivo"],
+            current_app.config["CARPETA_ENTREGAS"],
+            payload["nombre_final"],
+        )
+        if not exito_io:
             logging.error(
-                f"ERROR GRAVE guardando entrega de {apellidos_seguro}: {str(e)}",
+                f"Error IO guardando entrega de {payload['apellidos']}: {msj_falla}",
                 exc_info=True,
             )
-            return jsonify({"error": f"Error interno al guardar: {str(e)}"}), 500
+            return jsonify({"error": f"Error interno al guardar: {msj_falla}"}), 500
+
+        # 4. Persistencia en Base de Datos
+        codigo_comprobante = hash_archivo[:6].upper()
+        try:
+            persistencia.registrar_entrega_exitosa(
+                ruta_db=ruta_db,
+                legajo=legajo,
+                apellidos=payload["apellidos"],
+                nombres=payload["nombres"],
+                ip_vinculada=payload["ip"],
+                hostname=payload["hostname"],
+                timestamp=payload["momento_entrega"],
+                nombre_archivo=payload["nombre_final"],
+                hash_archivo=hash_archivo,
+                codigo_comprobante=codigo_comprobante,
+                es_nuevo_alumno=es_nuevo,
+            )
+        except Exception as e:
+            logging.error(
+                f"Error DB asintiendo entrega de {payload['apellidos']}: {str(e)}",
+                exc_info=True,
+            )
+            return jsonify({"error": "Error interno en base de datos"}), 500
+
+        # Éxito Total
+        logging.info(
+            f"NUEVA ENTREGA: {payload['apellidos']} {payload['nombres']} | Legajo: {legajo} | IP: {payload['ip']} | Comp: {codigo_comprobante}"
+        )
+        return (
+            jsonify(
+                {
+                    "mensaje": "Parcial entregado exitosamente",
+                    "comprobante": codigo_comprobante,
+                }
+            ),
+            200,
+        )
 
     return app
 
 
 def iniciar_servidor_en_hilo(app, callback_error):
-    """
-    Ejecuta el servidor Waitress en un hilo secundario.
-    Si ocurre un error a nivel de red (ej: puerto ocupado), ejecuta el callback.
-    """
-
     def _run():
         try:
             serve(app, host="0.0.0.0", port=seep_config.PUERTO_API)
@@ -238,7 +278,6 @@ def iniciar_servidor_en_hilo(app, callback_error):
             es_puerto_ocupado = (getattr(e, "errno", None) == errno.EADDRINUSE) or (
                 getattr(e, "winerror", None) == 10048
             )
-
             if es_puerto_ocupado:
                 titulo = "❌ ERROR CRÍTICO - Puerto Ocupado"
                 mensaje = (
@@ -249,7 +288,6 @@ def iniciar_servidor_en_hilo(app, callback_error):
             else:
                 titulo = "❌ ERROR CRÍTICO de Red"
                 mensaje = f"Ocurrió un error inesperado:\n{e}"
-
             callback_error(titulo, mensaje)
             os._exit(1)
 

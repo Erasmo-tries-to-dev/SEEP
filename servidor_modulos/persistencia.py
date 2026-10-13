@@ -1,5 +1,5 @@
 """
-Módulo de persistencia de SEEP.
+Módulo de persistencia de SEEP-Servidor Docente.
 Aísla toda la interacción con SQLite mediante el patrón Repositorio.
 Garantiza transacciones atómicas (commit/rollback) y el cierre seguro de conexiones.
 """
