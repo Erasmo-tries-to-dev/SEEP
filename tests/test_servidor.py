@@ -4,12 +4,6 @@ from io import BytesIO
 
 import pytest
 
-import os
-import sqlite3
-from io import BytesIO
-
-import pytest
-
 import seep_config
 from servidor_modulos.api import crear_app
 from servidor_modulos.persistencia import _crear_esquema
