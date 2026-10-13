@@ -2,7 +2,7 @@
 Punto de entrada principal del Servidor de Entregas SEEP.
 """
 
-from interfaz import InterfazServidor
+from servidor_modulos.interfaz import InterfazServidor
 
 if __name__ == "__main__":
     app = InterfazServidor()

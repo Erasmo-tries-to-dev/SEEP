@@ -17,7 +17,7 @@ from flask import Flask, current_app, jsonify, request
 from waitress import serve
 import random
 import seep_config
-import persistencia
+from servidor_modulos import persistencia
 
 CARACTERES_INVALIDOS_EN_NOMBRE = ["<", ">", ":", '"', "\\", "|", "?", "*"]
 
@@ -250,7 +250,6 @@ def iniciar_servidor_en_hilo(app, callback_error):
                 titulo = "❌ ERROR CRÍTICO de Red"
                 mensaje = f"Ocurrió un error inesperado:\n{e}"
 
-            # Avisamos a la Interfaz sin usar MessageBox desde aquí
             callback_error(titulo, mensaje)
             os._exit(1)
 

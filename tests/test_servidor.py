@@ -4,17 +4,15 @@ from io import BytesIO
 
 import pytest
 
+import os
+import sqlite3
+from io import BytesIO
+
+import pytest
+
 import seep_config
-import sys
-
-# Cambiar esto, es horrible, pero es necesario para que los tests puedan importar el módulo del servidor.
-ruta_servidor = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "servidor_docente")
-)
-sys.path.insert(0, ruta_servidor)
-
-from api import crear_app
-from persistencia import _crear_esquema
+from servidor_modulos.api import crear_app
+from servidor_modulos.persistencia import _crear_esquema
 
 
 @pytest.fixture

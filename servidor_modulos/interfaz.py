@@ -10,8 +10,8 @@ from tkinter import messagebox
 import customtkinter as ctk
 
 import seep_config
-import persistencia
-import api
+from servidor_modulos import persistencia
+from servidor_modulos import api
 
 
 class InterfazServidor(ctk.CTk):
