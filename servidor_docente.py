@@ -285,39 +285,67 @@ def crear_app(modulo_elegido, pin_fijo, carpeta_elegida, ruta_db):
         codigo_comprobante = hash_archivo[:6].upper()
 
         try:
+            ruta_db = current_app.config["RUTA_DB"]
+            conn = sqlite3.connect(ruta_db)
+            cursor = conn.cursor()
+
+            # --- NUEVO: CONTROL ESTRICTO DE REENTREGAS ---
+            cursor.execute(
+                "SELECT reentrega_habilitada FROM alumnos WHERE legajo = ?",
+                (id_seguro,),
+            )
+            resultado_alumno = cursor.fetchone()
+
+            if resultado_alumno is not None:
+                # El alumno ya existe en la base de datos. Verificamos si tiene permiso.
+                tiene_permiso = resultado_alumno[0]
+                if tiene_permiso == 0:
+                    conn.close()
+                    logging.warning(
+                        f"Reentrega bloqueada para {apellidos_seguro} ({id_seguro}) - IP: {ip_cliente}"
+                    )
+                    return (
+                        jsonify(
+                            {
+                                "error": "Ya registramos una entrega tuya. Si necesitás reentregar, levantá la mano y pedile autorización al docente."
+                            }
+                        ),
+                        403,
+                    )
+                else:
+                    # Tenía permiso. Se lo consumimos (lo volvemos a poner en 0) para que no envíe infinitamente
+                    cursor.execute(
+                        "UPDATE alumnos SET reentrega_habilitada = 0 WHERE legajo = ?",
+                        (id_seguro,),
+                    )
+            else:
+                # Es un alumno nuevo, lo registramos
+                cursor.execute(
+                    """
+                    INSERT INTO alumnos (legajo, apellidos, nombres, ip_vinculada, hostname_vinculado, reentrega_habilitada)
+                    VALUES (?, ?, ?, ?, ?, 0)
+                """,
+                    (
+                        id_seguro,
+                        apellidos_seguro,
+                        nombres_seguro,
+                        ip_cliente,
+                        hostname_seguro,
+                    ),
+                )
+
+            # Marcamos las entregas anteriores como inactivas
+            cursor.execute(
+                "UPDATE entregas SET es_activa = 0 WHERE legajo = ?", (id_seguro,)
+            )
+
             # 1. Guarda físicamente en el archivo temporal
             archivo.save(ruta_temporal)
 
             # 2. Guardado Atómico
             os.replace(ruta_temporal, ruta_guardado)
 
-            # 3. Guardado en Base de Datos SQLite (Reemplaza al CSV)
-            ruta_db = current_app.config["RUTA_DB"]
-            conn = sqlite3.connect(ruta_db)
-            cursor = conn.cursor()
-
-            # Paso 3A: Insertar al alumno si no existe (el IGNORE evita error si ya está registrado)
-            cursor.execute(
-                """
-                INSERT OR IGNORE INTO alumnos (legajo, apellidos, nombres, ip_vinculada, hostname_vinculado)
-                VALUES (?, ?, ?, ?, ?)
-            """,
-                (
-                    id_seguro,
-                    apellidos_seguro,
-                    nombres_seguro,
-                    ip_cliente,
-                    hostname_seguro,
-                ),
-            )
-
-            # (Fase 2: Aquí irá el bloqueo duro de reentregas. Por ahora, si un alumno vuelve a entregar,
-            # marcamos como inactivas sus entregas previas para que la actual sea la única activa)
-            cursor.execute(
-                "UPDATE entregas SET es_activa = 0 WHERE legajo = ?", (id_seguro,)
-            )
-
-            # Paso 3B: Insertar la entrega en el historial inmutable
+            # 3. Guardar el nuevo registro de entrega
             cursor.execute(
                 """
                 INSERT INTO entregas (legajo, timestamp, nombre_archivo, hash_archivo, codigo_comprobante, ip_origen, es_activa)
@@ -340,7 +368,6 @@ def crear_app(modulo_elegido, pin_fijo, carpeta_elegida, ruta_db):
                 f"NUEVA ENTREGA: {apellidos_seguro} {nombres_seguro} | DNI/Legajo: {id_seguro} | IP: {ip_cliente} | Comprobante: {codigo_comprobante}"
             )
 
-            # Devolvemos el código de comprobante al cliente (lo usaremos en la Fase 3)
             return (
                 jsonify(
                     {
@@ -470,6 +497,58 @@ def arrancar_servidor():
     )
     frame_lista.pack(pady=10, padx=20, fill="both", expand=True)
 
+    def habilitar_reentrega(legajo_alumno, nombres, apellidos):
+        """Abre el candado en SQLite para permitir exactamente un envío más de este legajo."""
+        if not ventana.ruta_db:
+            return
+        try:
+            conn = sqlite3.connect(ventana.ruta_db)
+            cursor = conn.cursor()
+            # Ponemos la bandera en 1 para este alumno
+            cursor.execute(
+                "UPDATE alumnos SET reentrega_habilitada = 1 WHERE legajo = ?",
+                (legajo_alumno,),
+            )
+            conn.commit()
+            conn.close()
+
+            # Avisamos visualmente al docente que tuvo éxito
+            messagebox.showinfo(
+                "Reentrega Autorizada",
+                f"Se habilitó UNA (1) nueva entrega para:\n{apellidos}, {nombres}\n(Legajo/DNI: {legajo_alumno}).\n\nEl alumno ya puede darle a 'Entregar' en su computadora.",
+            )
+        except Exception as e:
+            logging.error(f"Error habilitando reentrega: {e}")
+            messagebox.showerror(
+                "Error de Base de Datos", f"No se pudo habilitar: {str(e)}"
+            )
+
+    def habilitar_reentrega(legajo_alumno, nombres, apellidos):
+        """Abre el candado en SQLite para permitir exactamente un envío más de este legajo."""
+        if not ventana.ruta_db:
+            return
+        try:
+            conn = sqlite3.connect(ventana.ruta_db)
+            cursor = conn.cursor()
+            # Ponemos la bandera en 1 para este alumno
+            cursor.execute(
+                "UPDATE alumnos SET reentrega_habilitada = 1 WHERE legajo = ?",
+                (legajo_alumno,),
+            )
+            conn.commit()
+            conn.close()
+
+            # Avisamos visualmente al docente que tuvo éxito
+            messagebox.showinfo(
+                "Reentrega Autorizada",
+                f"Se habilitó UNA (1) nueva entrega para:\n{apellidos}, {nombres}\n(Legajo/DNI: {legajo_alumno}).\n\nEl alumno ya puede darle a 'Entregar' en su computadora.",
+            )
+        except Exception as e:
+            logging.error(f"Error habilitando reentrega: {e}")
+            messagebox.showerror(
+                "Error de Base de Datos", f"No se pudo habilitar: {str(e)}"
+            )
+
     def actualizar_grilla():
         """Consulta SQLite y redibuja la lista si hay entregas nuevas."""
         if not ventana.ruta_db:
@@ -479,18 +558,16 @@ def arrancar_servidor():
             conn = sqlite3.connect(ventana.ruta_db)
             cursor = conn.cursor()
 
-            # Optimizamos: solo redibujamos si el conteo de entregas activas cambió
-            cursor.execute("SELECT COUNT(*) FROM entregas WHERE es_activa = 1")
+            cursor.execute("SELECT COUNT(*) FROM entregas")
             conteo_actual = cursor.fetchone()[0]
 
             if conteo_actual != ventana.ultimo_conteo:
                 ventana.ultimo_conteo = conteo_actual
 
-                # Limpiamos todos los datos viejos de la grilla
                 for widget in frame_lista.winfo_children():
                     widget.destroy()
 
-                # Dibujamos los encabezados
+                # Agregamos la columna "Acciones" al final
                 encabezados = [
                     "Legajo/DNI",
                     "Apellidos",
@@ -498,13 +575,13 @@ def arrancar_servidor():
                     "Hora",
                     "Comprobante",
                     "Alerta IP",
+                    "Acciones",
                 ]
                 for col, texto in enumerate(encabezados):
                     ctk.CTkLabel(
                         frame_lista, text=texto, font=("Roboto", 14, "bold")
                     ).grid(row=0, column=col, padx=10, pady=5, sticky="w")
 
-                # Buscamos las entregas activas cruzando las dos tablas
                 cursor.execute("""
                     SELECT a.legajo, a.apellidos, a.nombres, e.timestamp, e.codigo_comprobante, a.ip_vinculada, e.ip_origen
                     FROM entregas e
@@ -513,7 +590,6 @@ def arrancar_servidor():
                     ORDER BY e.timestamp DESC
                 """)
 
-                # Dibujamos fila por fila
                 for fila_idx, fila_datos in enumerate(cursor.fetchall(), start=1):
                     (
                         legajo,
@@ -525,10 +601,7 @@ def arrancar_servidor():
                         ip_origen,
                     ) = fila_datos
 
-                    # Extraemos solo HH:MM:SS del timestamp "YYYY-MM-DD HH:MM:SS.mmmmmm"
                     hora_str = str(timestamp)[11:19]
-
-                    # Chequeo de seguridad visual (Suplantación S1)
                     alerta_ip = "⚠️ Difiere" if ip_vinculada != ip_origen else "OK"
                     color_ip = "orange" if ip_vinculada != ip_origen else "gray"
 
@@ -551,11 +624,26 @@ def arrancar_servidor():
                         row=fila_idx, column=5, padx=10, pady=2, sticky="w"
                     )
 
+                    # --- EL BOTÓN MÁGICO ---
+                    # Usamos una función lambda para atrapar el valor exacto de las variables en este ciclo del loop
+                    btn_reentrega = ctk.CTkButton(
+                        frame_lista,
+                        text="Habilitar",
+                        width=80,
+                        fg_color="#8B0000",  # Rojo oscuro
+                        hover_color="#FF0000",  # Rojo brillante
+                        command=lambda l=legajo, n=nombres, a=apellidos: habilitar_reentrega(
+                            l, n, a
+                        ),
+                    )
+                    btn_reentrega.grid(
+                        row=fila_idx, column=6, padx=10, pady=2, sticky="w"
+                    )
+
             conn.close()
         except Exception as e:
             logging.error(f"Error actualizando grilla: {e}")
 
-        # Programamos el próximo chequeo en 3000 ms (3 segundos)
         ventana.after(3000, actualizar_grilla)
 
     def iniciar_sistema():
