@@ -398,7 +398,7 @@ def crear_app(modulo_elegido, pin_fijo, carpeta_elegida, ruta_db):
                 """,
                 (
                     id_seguro,
-                    momento_entrega,
+                    str(momento_entrega),
                     nombre_final,
                     hash_archivo,
                     codigo_comprobante,
