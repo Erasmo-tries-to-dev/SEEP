@@ -269,8 +269,33 @@ class AppAlumno(ctk.CTk):
         url_upload = f"http://{ip}:{seep_config.PUERTO_API}/upload"
 
         try:
-            requests.get(url_ping, timeout=seep_config.TIMEOUT_PING)
+            # 1. Agregamos el parámetro de versión al ping
+            respuesta_ping = requests.get(
+                url_ping,
+                params={"version": seep_config.VERSION_SEEP},
+                timeout=seep_config.TIMEOUT_PING,
+            )
 
+            # 2. Si el servidor nos rechaza el ping (por versión vieja o cualquier otro error), abortamos
+            if respuesta_ping.status_code != 200:
+                try:
+                    texto_error = respuesta_ping.json().get(
+                        "error",
+                        f"Error en el servidor (HTTP {respuesta_ping.status_code})",
+                    )
+                except ValueError:
+                    texto_error = f"Error crítico en el servidor (HTTP {respuesta_ping.status_code})"
+
+                logging.error(f"Ping rechazado: {texto_error}")
+                self.cola_mensajes.put(
+                    lambda m=texto_error: self.mostrar_estado(
+                        f"❌ Error: {m}", "#e74c3c"
+                    )
+                )
+                self.cola_mensajes.put(self.reactivar_boton)
+                return  # IMPORTANTE: Salimos de la función para NO ejecutar el upload
+
+            # Si el ping fue exitoso (200 OK), procedemos a leer y enviar el archivo
             with open(ruta, "rb") as f:
                 archivos = {"file": f}
                 datos = {
