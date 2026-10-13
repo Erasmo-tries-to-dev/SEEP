@@ -6,8 +6,8 @@ import pytest
 
 import seep_config
 
-# Asumiendo que el archivo actual se llama servidor_docente.py (o servidor_docente_2.py)
-from servidor_docente import crear_app, _crear_esquema
+from api import crear_app
+from persistencia import _crear_esquema
 
 
 @pytest.fixture
