@@ -344,7 +344,12 @@ def iniciar_servidor_en_hilo(
 
     def _run() -> None:
         try:
-            serve(app, host=HOST_BIND, port=seep_config.PUERTO_API)
+            serve(
+                app,
+                host=HOST_BIND,
+                port=seep_config.PUERTO_API,
+                max_request_body_size=seep_config.MAX_TAMANO_BYTES,
+            )
         except OSError as e:
             es_puerto_ocupado = (getattr(e, "errno", None) == errno.EADDRINUSE) or (
                 getattr(e, "winerror", None) == CODIGO_ERROR_PUERTO_WIN
