@@ -222,19 +222,29 @@ def _verificar_politica_reentrega(ruta_db: str, legajo: str) -> Tuple[bool, bool
 
 
 def _guardar_archivo_atomico(
-    archivo: Any, carpeta_destino: str, nombre_final: str
+    archivo: Any, carpeta_destino: str, nombre_final: str, hash_esperado: str
 ) -> Tuple[bool, str]:
     """
     Fase 3: Escribe el archivo parcial primero con extensión temporal (.tmp).
-    Si el sistema operativo confirma la escritura, lo renombra al final.
-    Retorna (exito, mensaje_de_error).
-    NOTA: Ya no calcula el hash acá. Como es comun se movio a "seep_config".
+    Luego de escribirlo, lee el disco y recalcula el hash para asegurar que
+    no hubo corrupción de I/O. Si todo está bien, lo renombra al final.
     """
     ruta_guardado = os.path.join(carpeta_destino, nombre_final)
     ruta_temporal = ruta_guardado + ".tmp"
 
     try:
         archivo.save(ruta_temporal)
+
+        with open(ruta_temporal, "rb") as f_tmp:
+            hash_disco = seep_config.calcular_hash(f_tmp)
+
+        if hash_disco != hash_esperado:
+            os.remove(ruta_temporal)
+            return (
+                False,
+                "Error de hardware: El archivo se corrompió al escribirse en el disco.",
+            )
+
         os.replace(ruta_temporal, ruta_guardado)
         return True, ""
     except Exception as e:
@@ -316,6 +326,7 @@ def crear_app(
             archivo,
             current_app.config["CARPETA_ENTREGAS"],
             payload["nombre_final"],
+            hash_servidor,
         )
         if not exito_io:
             logging.error(
