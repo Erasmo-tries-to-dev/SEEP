@@ -10,6 +10,7 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
 - **Validación Criptográfica End-to-End (R5):** El cliente ahora calcula la firma SHA-256 del parcial localmente. El servidor valida esta firma al recibir el archivo, rechazando instantáneamente entregas corrompidas por cortes de red[cite: 1, 2, 3].
 - **Seguridad contra Fuerza Bruta (S5):** Migración del PIN numérico a un formato alfanumérico seguro de 6 caracteres usando el módulo `secrets`[cite: 3]. Implementación de _Rate Limiting_ en memoria (bloqueo automático de IP tras 5 intentos fallidos por 60 segundos)[cite: 3, 4].
 - **Auditoría de Hardware en Guardado:** El guardado atómico ahora incluye una segunda capa de verificación. El servidor re-calcula el hash leyendo el archivo recién escrito en disco para garantizar que el sistema operativo no haya corrompido los datos durante el I/O[cite: 3, 4].
+- **Prevención de Condiciones de Carrera (Race Conditions):** Se implementaron cerrojos de concurrencia (`Locks`) en el servidor web. Esto soluciona una vulnerabilidad TOCTOU donde envíos simultáneos en el mismo milisegundo podían evadir las restricciones de una sola entrega por alumno. Adicionalmente, blinda el sistema de _Rate Limiting_ en memoria contra ataques de fuerza bruta en paralelo y elimina (posibles) bloqueos de escritura concurrente en SQLite.
 
 ### 🚀 Mejoras de Red y Experiencia (R11)
 
