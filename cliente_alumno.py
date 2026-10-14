@@ -1,11 +1,23 @@
+"""Cliente alumno de SEEP.
+
+Interfaz gráfica para que el alumno complete sus datos, seleccione el archivo
+del parcial y lo envíe al servidor del docente. El envío de red se ejecuta en
+un hilo secundario y las actualizaciones de la interfaz se devuelven al hilo
+principal mediante una cola.
+"""
+
+import logging
 import os
-import threading
-import requests
 import queue
 import socket
-import logging
+import threading
+from tkinter import filedialog, messagebox
 
-# Configuración del log físico para auditoría en la PC del alumno
+import customtkinter as ctk
+
+from cliente_modulos import cliente_red
+import seep_config
+
 logging.basicConfig(
     filename="seep_cliente.log",
     level=logging.INFO,
@@ -13,39 +25,78 @@ logging.basicConfig(
     encoding="utf-8",
 )
 
-import seep_config
-from tkinter import messagebox
-import customtkinter as ctk
-from tkinter import filedialog
+COLOR_ERROR = "#e74c3c"
+COLOR_PROCESANDO = "#f1c40f"
+COLOR_EXITO = "#2ecc71"
+COLOR_NEUTRO = "gray"
+INTERVALO_COLA_MS = 100
 
-ctk.set_appearance_mode("System")
-ctk.set_default_color_theme("blue")
+MODULOS = ["Imperativo", "Objetos", "Concurrente"]
+TIPOS_ARCHIVO_POR_MODULO = {
+    "Imperativo": [("Archivos Pascal", "*.pas")],
+    "Objetos": [("Archivos ZIP", "*.zip")],
+}
+TIPOS_ARCHIVO_POR_DEFECTO = [("Todos los archivos", "*.*")]
+
+CAMPOS_FORMULARIO = [
+    {
+        "id": "ip",
+        "label": "IP:",
+        "placeholder": "Ej: Ver pizarrón o preguntar a docente",
+        "es_password": False,
+    },
+    {
+        "id": "pin",
+        "label": "PIN de Seguridad:",
+        "placeholder": "Ingrese el PIN",
+        "es_password": True,
+    },
+    {
+        "id": "apellidos",
+        "label": "Apellidos:",
+        "placeholder": "Pérez García",
+        "es_password": False,
+    },
+    {
+        "id": "nombres",
+        "label": "Nombres:",
+        "placeholder": "Juan Martín",
+        "es_password": False,
+    },
+    {
+        "id": "identificador",
+        "label": "Legajo o DNI:",
+        "placeholder": "Ej: 12345/6 o 40123456",
+        "es_password": False,
+    },
+]
 
 
 class AppAlumno(ctk.CTk):
-    """
-    Clase principal de la interfaz gráfica del Cliente Alumno del SEEP.
-    Gestiona la captura de datos del estudiante, la selección validada del archivo
-    y la transmisión segura del mismo hacia el servidor docente.
+    """Ventana principal del cliente alumno.
+
+    Captura los datos del estudiante, valida el archivo seleccionado y
+    transmite el parcial al servidor docente.
     """
 
     def __init__(self):
-        """
-        Inicializa la ventana principal, define sus dimensiones y construye
-        todos los elementos visuales (etiquetas, campos de texto y botones)
-        mediante generación dinámica.
-        """
+        """Crea la ventana, construye el formulario y arranca el procesamiento de la cola."""
         super().__init__()
         logging.info("Iniciando aplicación Cliente Alumno SEEP.")
 
         self.title("SEEP - Taller de Programación")
-        # Cambiamos 500x700 por 500x600 y permitimos redimensionar el alto (True)
         self.geometry("500x600")
         self.resizable(False, True)
 
         self.ruta_archivo = None
-        self.entradas = {}  # Diccionario para guardar referencias a los CTkEntry
+        self.entradas = {}
+        self.cola_mensajes = queue.Queue()
 
+        self._construir_interfaz()
+        self.procesar_cola()
+
+    def _construir_interfaz(self):
+        """Crea y ubica todos los widgets de la ventana."""
         self.lbl_titulo = ctk.CTkLabel(
             self, text="Entrega de Parcial", font=("Roboto", 24, "bold")
         )
@@ -54,67 +105,14 @@ class AppAlumno(ctk.CTk):
         self.frame_form = ctk.CTkFrame(self)
         self.frame_form.pack(pady=10, padx=20, fill="both")
 
-        # ---------------------------------------------------------
-        # REFACTOR: Generación dinámica de los campos del formulario
-        # ---------------------------------------------------------
-        campos_formulario = [
-            {
-                "id": "ip",
-                "label": "IP:",
-                "placeholder": "Ej: Ver pizarrón o preguntar a docente",
-                "is_password": False,
-            },
-            {
-                "id": "pin",
-                "label": "PIN de Seguridad:",
-                "placeholder": "Ingrese el PIN",
-                "is_password": True,
-            },
-            {
-                "id": "apellidos",
-                "label": "Apellidos:",
-                "placeholder": "Pérez García",
-                "is_password": False,
-            },
-            {
-                "id": "nombres",
-                "label": "Nombres:",
-                "placeholder": "Juan Martín",
-                "is_password": False,
-            },
-            {
-                "id": "identificador",
-                "label": "Legajo o DNI:",
-                "placeholder": "Ej: 12345/6 o 40123456",
-                "is_password": False,
-            },
-        ]
+        self._crear_campos_formulario()
 
-        for i, campo in enumerate(campos_formulario):
-            # El primer label tiene un margen superior un poco más grande
-            pad_top = 15 if i == 0 else 0
-
-            lbl = ctk.CTkLabel(self.frame_form, text=campo["label"], anchor="w")
-            lbl.pack(pady=(pad_top, 0), padx=20, fill="x")
-
-            entry = ctk.CTkEntry(
-                self.frame_form,
-                placeholder_text=campo["placeholder"],
-                show="*" if campo["is_password"] else "",
-            )
-            entry.pack(pady=(5, 10), padx=20, fill="x")
-
-            # Guardamos la referencia para poder extraer el texto después
-            self.entradas[campo["id"]] = entry
-        # ---------------------------------------------------------
-
-        self.lbl_modulo = ctk.CTkLabel(
-            self.frame_form, text="Módulo a rendir:", anchor="w"
+        ctk.CTkLabel(self.frame_form, text="Módulo a rendir:", anchor="w").pack(
+            pady=0, padx=20, fill="x"
         )
-        self.lbl_modulo.pack(pady=0, padx=20, fill="x")
         self.combo_modulo = ctk.CTkOptionMenu(
             self.frame_form,
-            values=["Imperativo", "Objetos", "Concurrente"],
+            values=MODULOS,
             command=self.al_cambiar_modulo,
         )
         self.combo_modulo.pack(pady=(5, 15), padx=20, fill="x")
@@ -129,7 +127,7 @@ class AppAlumno(ctk.CTk):
         self.btn_archivo.pack(pady=(10, 5), padx=20)
 
         self.lbl_archivo_seleccionado = ctk.CTkLabel(
-            self.frame_form, text="Ningún archivo seleccionado", text_color="gray"
+            self.frame_form, text="Ningún archivo seleccionado", text_color=COLOR_NEUTRO
         )
         self.lbl_archivo_seleccionado.pack(pady=(0, 15), padx=20)
 
@@ -145,259 +143,164 @@ class AppAlumno(ctk.CTk):
         )
         self.btn_enviar.pack(pady=(5, 20), padx=40, fill="x")
 
-        self.cola_mensajes = queue.Queue()
-        self.procesar_cola()
+    def _crear_campos_formulario(self):
+        """Crea las etiquetas y campos de texto definidos en CAMPOS_FORMULARIO."""
+        for indice, campo in enumerate(CAMPOS_FORMULARIO):
+            pad_superior = 15 if indice == 0 else 0
+
+            ctk.CTkLabel(self.frame_form, text=campo["label"], anchor="w").pack(
+                pady=(pad_superior, 0), padx=20, fill="x"
+            )
+            entrada = ctk.CTkEntry(
+                self.frame_form,
+                placeholder_text=campo["placeholder"],
+                show="*" if campo["es_password"] else "",
+            )
+            entrada.pack(pady=(5, 10), padx=20, fill="x")
+            self.entradas[campo["id"]] = entrada
 
     def procesar_cola(self):
-        """Revisa si hay actualizaciones pendientes de otros hilos y las dibuja de forma segura."""
+        """Consume objetos ResultadoEntrega de la cola y actualiza la GUI.
+
+        Se reprograma cada INTERVALO_COLA_MS milisegundos.
+        """
         try:
             while True:
-                tarea = self.cola_mensajes.get_nowait()
-                tarea()
+                resultado = self.cola_mensajes.get_nowait()
+                if isinstance(resultado, cliente_red.ResultadoEntrega):
+                    self._aplicar_resultado(resultado)
         except queue.Empty:
             pass
-        self.after(100, self.procesar_cola)
+        self.after(INTERVALO_COLA_MS, self.procesar_cola)
 
     def al_cambiar_modulo(self, _):
+        """Descarta el archivo seleccionado al cambiar de módulo.
+
+        Así el alumno debe elegir un archivo con la extensión que exige el nuevo módulo.
+
+        Args:
+            _ (str): Nuevo valor del selector de módulo (no se usa).
         """
-        Limpia el archivo actualmente seleccionado si el alumno cambia de módulo,
-        forzándolo a seleccionar un archivo que coincida con la nueva extensión requerida.
-        """
+        self._quitar_seleccion()
+        self.mostrar_estado("", COLOR_NEUTRO)
+
+    def _quitar_seleccion(self):
+        """Olvida el archivo seleccionado y restaura el texto por defecto."""
         self.ruta_archivo = None
         self.lbl_archivo_seleccionado.configure(
-            text="Ningún archivo seleccionado", text_color="gray"
+            text="Ningún archivo seleccionado", text_color=COLOR_NEUTRO
         )
-        self.mostrar_estado("", "gray")
 
     def seleccionar_archivo(self):
+        """Abre el explorador de archivos filtrado por el módulo y valida el archivo elegido.
+
+        Rechaza archivos que superen el tamaño máximo o que no tengan la
+        extensión requerida por el módulo.
         """
-        Abre el explorador de archivos nativo de Windows filtrando por la extensión
-        correspondiente al módulo seleccionado. Realiza validaciones delegadas a seep_config.
-        """
-        modulo_seleccionado = self.combo_modulo.get()
+        modulo = self.combo_modulo.get()
+        tipos = TIPOS_ARCHIVO_POR_MODULO.get(modulo, TIPOS_ARCHIVO_POR_DEFECTO)
 
-        if modulo_seleccionado == "Imperativo":
-            tipos_archivo = [("Archivos Pascal", "*.pas")]
-        elif modulo_seleccionado == "Objetos":
-            tipos_archivo = [("Archivos ZIP", "*.zip")]
-        else:
-            tipos_archivo = [("Todos los archivos", "*.*")]
+        ruta = filedialog.askopenfilename(title="Seleccionar parcial", filetypes=tipos)
+        if not ruta:
+            return
 
-        ruta = filedialog.askopenfilename(
-            title="Seleccionar parcial",
-            filetypes=tipos_archivo,
-        )
+        nombre_archivo = os.path.basename(ruta)
 
-        if ruta:
-            nombre_archivo = os.path.basename(ruta)
-
-            if os.path.getsize(ruta) > seep_config.MAX_TAMANO_BYTES:
-                self.marcar_error_archivo(
-                    f"Error: El archivo pesa más de {seep_config.MAX_TAMANO_MB}MB"
-                )
-                return
-
-            es_valido, resultado = seep_config.validar_extension(
-                nombre_archivo, modulo_seleccionado
+        if os.path.getsize(ruta) > seep_config.MAX_TAMANO_BYTES:
+            self.marcar_error_archivo(
+                f"Error: El archivo pesa más de {seep_config.MAX_TAMANO_MB}MB"
             )
-            if not es_valido:
-                self.marcar_error_archivo(resultado)
-                return
+            return
 
-            self.ruta_archivo = ruta
-            self.lbl_archivo_seleccionado.configure(text=f"📁 {nombre_archivo}")
-            self.mostrar_estado("", "gray")
-            logging.info(f"Archivo válido seleccionado: {ruta}")
+        es_valido, resultado = seep_config.validar_extension(nombre_archivo, modulo)
+        if not es_valido:
+            self.marcar_error_archivo(resultado)
+            return
+
+        self.ruta_archivo = ruta
+        self.lbl_archivo_seleccionado.configure(text=f"📁 {nombre_archivo}")
+        self.mostrar_estado("", COLOR_NEUTRO)
+        logging.info(f"Archivo válido seleccionado: {ruta}")
 
     def marcar_error_archivo(self, mensaje):
+        """Muestra un error de selección de archivo y descarta la selección actual.
+
+        Args:
+            mensaje (str): Motivo del rechazo, que se muestra al alumno.
         """
-        Helper para mostrar mensajes de error relacionados a la selección
-        del archivo y limpiar cualquier selección inválida previa.
-        """
-        self.mostrar_estado(mensaje, "#e74c3c")
-        self.ruta_archivo = None
-        self.lbl_archivo_seleccionado.configure(
-            text="Ningún archivo seleccionado", text_color="gray"
-        )
+        self.mostrar_estado(mensaje, COLOR_ERROR)
+        self._quitar_seleccion()
         logging.warning(f"Validación de archivo fallida: {mensaje}")
 
     def mostrar_estado(self, mensaje, color):
-        """
-        Actualiza el label inferior de la interfaz gráfica para comunicar
-        al usuario el estado de su operación o posibles errores.
+        """Actualiza la etiqueta de estado inferior.
+
+        Args:
+            mensaje (str): Texto a mostrar.
+            color (str): Color del texto.
         """
         self.lbl_estado.configure(text=mensaje, text_color=color)
 
     def iniciar_entrega(self):
-        """
-        Valida que todos los campos del formulario estén completos.
-        Bloquea la interfaz temporalmente y lanza un hilo secundario
-        para gestionar la comunicación de red sin congelar la ventana.
-        """
-        # Extraemos dinámicamente los valores usando nuestro diccionario 'entradas'
-        ip = self.entradas["ip"].get().strip()
-        pin = self.entradas["pin"].get().strip()
-        apellidos = self.entradas["apellidos"].get().strip()
-        nombres = self.entradas["nombres"].get().strip()
-        identificador = self.entradas["identificador"].get().strip()
+        """Valida el formulario y lanza el envío en un hilo secundario."""
+        valores = {
+            campo["id"]: self.entradas[campo["id"]].get().strip()
+            for campo in CAMPOS_FORMULARIO
+        }
 
-        if not all([ip, pin, apellidos, nombres, identificador]):
-            self.mostrar_estado("Error: Completá todos los campos", "#e74c3c")
+        if not all(valores.values()):
+            self.mostrar_estado("Error: Completá todos los campos", COLOR_ERROR)
             return
 
         if not self.ruta_archivo:
-            self.mostrar_estado("Error: Seleccioná tu archivo del parcial", "#e74c3c")
+            self.mostrar_estado("Error: Seleccioná tu archivo del parcial", COLOR_ERROR)
             return
 
         self.btn_enviar.configure(state="disabled", text="Enviando...")
-        self.mostrar_estado("Conectando con la PC del docente...", "#f1c40f")
+        self.mostrar_estado("Conectando con la PC del docente...", COLOR_PROCESANDO)
 
-        logging.info(f"Iniciando intento de entrega hacia {ip} para {identificador}")
-
-        hilo = threading.Thread(
-            target=self.enviar_red,
-            args=(ip, pin, apellidos, nombres, identificador, self.ruta_archivo),
+        datos = cliente_red.DatosEntrega(
+            ip=valores["ip"],
+            pin=valores["pin"],
+            apellidos=valores["apellidos"],
+            nombres=valores["nombres"],
+            identificador=valores["identificador"],
+            ruta_archivo=self.ruta_archivo,
         )
-        hilo.start()
 
-    def enviar_red(self, ip, pin, apellidos, nombres, identificador, ruta):
-        """
-        Función ejecutada en segundo plano. Utiliza seep_config para los
-        timeouts y puertos unificados, transmitiendo el examen al servidor.
-        """
-        url_ping = f"http://{ip}:{seep_config.PUERTO_API}/ping"
-        url_upload = f"http://{ip}:{seep_config.PUERTO_API}/upload"
+        logging.info(
+            f"Iniciando intento de entrega hacia {datos.ip} para {datos.identificador}"
+        )
 
-        try:
-            # 1. Agregamos el parámetro de versión al ping
-            respuesta_ping = requests.get(
-                url_ping,
-                params={"version": seep_config.VERSION_SEEP},
-                timeout=seep_config.TIMEOUT_PING,
+        # Lanzamos el hilo como daemon para evitar bloqueos si el alumno cierra la app.
+        threading.Thread(
+            target=self._hilo_enviar_red, args=(datos,), daemon=True
+        ).start()
+
+    def _hilo_enviar_red(self, datos: cliente_red.DatosEntrega):
+        """Ejecuta la capa de red y encola el resultado para la interfaz visual."""
+        resultado = cliente_red.enviar_examen(datos)
+        self.cola_mensajes.put(resultado)
+
+    def _aplicar_resultado(self, resultado: cliente_red.ResultadoEntrega):
+        """Actualiza los widgets basándose en el DTO recibido."""
+        if resultado.exito:
+            logging.info(f"Entrega confirmada. Comprobante: {resultado.comprobante}")
+            self.mostrar_estado(
+                f"✅ Entregado. Comprobante: {resultado.comprobante}", COLOR_EXITO
             )
-
-            # 2. Si el servidor nos rechaza el ping (por versión vieja o cualquier otro error), abortamos
-            if respuesta_ping.status_code != 200:
-                try:
-                    texto_error = respuesta_ping.json().get(
-                        "error",
-                        f"Error en el servidor (HTTP {respuesta_ping.status_code})",
-                    )
-                except ValueError:
-                    texto_error = f"Error crítico en el servidor (HTTP {respuesta_ping.status_code})"
-
-                logging.error(f"Ping rechazado: {texto_error}")
-                self.cola_mensajes.put(
-                    lambda m=texto_error: self.mostrar_estado(
-                        f"❌ Error: {m}", "#e74c3c"
-                    )
-                )
-                self.cola_mensajes.put(self.reactivar_boton)
-                return  # IMPORTANTE: Salimos de la función para NO ejecutar el upload
-
-            # Si el ping fue exitoso (200 OK), procedemos a leer y enviar el archivo
-            with open(ruta, "rb") as f:
-                archivos = {"file": f}
-                datos = {
-                    "pin": pin,
-                    "apellidos": apellidos,
-                    "nombres": nombres,
-                    "identificador": identificador,
-                    "hostname": socket.gethostname(),
-                    "version": seep_config.VERSION_SEEP,
-                }
-
-                respuesta = requests.post(
-                    url_upload,
-                    data=datos,
-                    files=archivos,
-                    timeout=seep_config.TIMEOUT_UPLOAD,
-                )
-
-                if respuesta.status_code == 200:
-                    datos_respuesta = respuesta.json()
-                    comprobante = datos_respuesta.get("comprobante", "SIN-CODIGO")
-
-                    logging.info(
-                        f"Entrega confirmada por el servidor. Comprobante: {comprobante}"
-                    )
-
-                    self.cola_mensajes.put(
-                        lambda c=comprobante: self.mostrar_estado(
-                            f"✅ Entregado. Comprobante: {c}", "#2ecc71"
-                        )
-                    )
-                    self.cola_mensajes.put(
-                        lambda: self.btn_enviar.configure(
-                            text="Entregado", state="disabled"
-                        )
-                    )
-                    # Mostramos el comprobante gigante al alumno
-                    self.cola_mensajes.put(
-                        lambda c=comprobante: messagebox.showinfo(
-                            "Entrega Exitosa",
-                            f"El servidor recibió tu examen correctamente.\n\nTU COMPROBANTE ES:\n{c}\n\nPor favor, anotá este código o sacale una foto antes de cerrar el programa.",
-                        )
-                    )
-                else:
-                    try:
-                        texto_error = respuesta.json().get(
-                            "error", "Error en el servidor"
-                        )
-                    except ValueError:
-                        texto_error = (
-                            f"Error crítico en servidor (HTTP {respuesta.status_code})"
-                        )
-
-                    logging.error(f"Rechazo del servidor: {texto_error}")
-
-                    # Si el servidor devolvió un 403 (candado de reentrega) mostramos un cartel evidente
-                    if respuesta.status_code == 403 and "autorización" in texto_error:
-                        self.cola_mensajes.put(
-                            lambda m=texto_error: messagebox.showwarning(
-                                "Reentrega Bloqueada", m
-                            )
-                        )
-
-                    self.cola_mensajes.put(
-                        lambda m=texto_error: self.mostrar_estado(
-                            f"❌ Error: {m}", "#e74c3c"
-                        )
-                    )
-                    self.cola_mensajes.put(self.reactivar_boton)
-
-        except requests.exceptions.Timeout:
-            logging.error("Timeout al intentar conectar con el servidor.")
-            self.cola_mensajes.put(
-                lambda: self.mostrar_estado(
-                    "❌ Tiempo de espera agotado. Verificá la IP.", "#e74c3c"
-                )
+            self.btn_enviar.configure(text="Entregado", state="disabled")
+            messagebox.showinfo(
+                "Entrega Exitosa",
+                f"El servidor recibió tu examen correctamente.\n\nTU COMPROBANTE ES:\n{resultado.comprobante}\n\nPor favor, anotá este código o sacale una foto antes de cerrar.",
             )
-            self.cola_mensajes.put(self.reactivar_boton)
-        except requests.exceptions.ConnectionError:
-            logging.error("Fallo de conexión de red (ConnectionError).")
-            self.cola_mensajes.put(
-                lambda: self.mostrar_estado(
-                    "❌ No se pudo conectar. Verificá la IP.", "#e74c3c"
-                )
-            )
-            self.cola_mensajes.put(self.reactivar_boton)
-        except Exception as e:
-            mensaje_error = str(e)
-            logging.error(f"Excepción inesperada en envío: {mensaje_error}")
-            self.cola_mensajes.put(
-                lambda m=mensaje_error: self.mostrar_estado(
-                    f"❌ Error inesperado: {m}", "#e74c3c"
-                )
-            )
-            self.cola_mensajes.put(self.reactivar_boton)
+        else:
+            logging.error(f"Rechazo del servidor: {resultado.mensaje_error}")
+            self.mostrar_estado(f"❌ Error: {resultado.mensaje_error}", COLOR_ERROR)
+            self.btn_enviar.configure(state="normal", text="Reintentar Entrega")
 
-    def reactivar_boton(self):
-        """
-        Restaura el botón de envío a su estado original permitiendo al alumno
-        corregir sus datos y realizar un nuevo intento de entrega.
-        """
-        self.btn_enviar.configure(state="normal", text="Reintentar Entrega")
+            if resultado.bloqueado_por_reentrega:
+                messagebox.showwarning("Reentrega Bloqueada", resultado.mensaje_error)
 
 
 if __name__ == "__main__":
