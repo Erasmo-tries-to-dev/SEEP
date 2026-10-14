@@ -171,7 +171,14 @@ class InterfazServidor(ctk.CTk):
 
     def mostrar_error_critico(self, titulo: str, mensaje: str) -> None:
         """Callback ejecutado desde el hilo de la API si el servidor falla al arrancar."""
-        messagebox.showerror(titulo, mensaje)
+
+        def _mostrar_y_cerrar():
+            messagebox.showerror(titulo, mensaje)
+            import os
+
+            os._exit(1)
+
+        self.after(0, _mostrar_y_cerrar)
 
     def habilitar_reentrega_gui(
         self, legajo_alumno: str, nombres: str, apellidos: str

@@ -366,7 +366,6 @@ def iniciar_servidor_en_hilo(
                 mensaje = f"Ocurrió un error inesperado:\n{e}"
 
             callback_error(titulo, mensaje)
-            os._exit(1)
 
     hilo = Thread(target=_run, daemon=True)
     hilo.start()
