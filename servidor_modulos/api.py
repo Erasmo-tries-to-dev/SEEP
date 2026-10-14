@@ -14,7 +14,7 @@ import time
 import socket
 import sys
 from datetime import datetime
-from threading import Thread
+from threading import Thread, Lock
 from typing import Any, Callable, Dict, Tuple
 
 from flask import Flask, current_app, jsonify, request
@@ -37,7 +37,13 @@ IP_DUMMY_CONEXION: str = "10.255.255.255"
 CODIGO_ERROR_PUERTO_WIN: int = 10048
 MAX_INTENTOS_PIN: int = 5
 TIEMPO_BLOQUEO_SEG: int = 60
+
+# --- ESTADOS COMPARTIDOS EN MEMORIA ---
 registro_intentos_ip: Dict[str, Tuple[int, float]] = {}
+
+# --- CERROJOS (LOCKS) DE CONCURRENCIA ---
+lock_rate_limit = Lock()
+lock_entregas = Lock()
 
 # -----------------------------------------------------------------------------
 # FUNCIONES DE UTILIDAD GENERAL
@@ -149,32 +155,34 @@ def _validar_datos_entrega(
 
     ip_cliente = req.remote_addr
     ahora = time.time()
-    fallos, ultimo_intento = registro_intentos_ip.get(ip_cliente, (0, 0.0))
 
-    if fallos >= MAX_INTENTOS_PIN:
-        if (ahora - ultimo_intento) < TIEMPO_BLOQUEO_SEG:
-            tiempo_restante = int(TIEMPO_BLOQUEO_SEG - (ahora - ultimo_intento))
+    with lock_rate_limit:
+        fallos, ultimo_intento = registro_intentos_ip.get(ip_cliente, (0, 0.0))
+
+        if fallos >= MAX_INTENTOS_PIN:
+            if (ahora - ultimo_intento) < TIEMPO_BLOQUEO_SEG:
+                tiempo_restante = int(TIEMPO_BLOQUEO_SEG - (ahora - ultimo_intento))
+                return (
+                    False,
+                    {
+                        "error": f"Demasiados intentos fallidos. IP bloqueada por {tiempo_restante} segundos."
+                    },
+                    429,
+                )
+            else:
+                fallos = 0
+
+        if pin != config["PIN"]:
+            registro_intentos_ip[ip_cliente] = (fallos + 1, ahora)
+            intentos_restantes = MAX_INTENTOS_PIN - (fallos + 1)
             return (
                 False,
-                {
-                    "error": f"Demasiados intentos fallidos. IP bloqueada por {tiempo_restante} segundos."
-                },
-                429,
+                {"error": f"PIN incorrecto. Te quedan {intentos_restantes} intentos."},
+                403,
             )
-        else:
-            fallos = 0
 
-    if pin != config["PIN"]:
-        registro_intentos_ip[ip_cliente] = (fallos + 1, ahora)
-        intentos_restantes = MAX_INTENTOS_PIN - (fallos + 1)
-        return (
-            False,
-            {"error": f"PIN incorrecto. Te quedan {intentos_restantes} intentos."},
-            403,
-        )
-
-    if ip_cliente in registro_intentos_ip:
-        del registro_intentos_ip[ip_cliente]
+        if ip_cliente in registro_intentos_ip:
+            del registro_intentos_ip[ip_cliente]
 
     modulo_activo = config["MODULO"]
     es_valido, resultado_ext = seep_config.validar_extension(
@@ -286,7 +294,7 @@ def crear_app(
     def upload() -> Tuple[Response, int]:
         """Endpoint orquestador de recepción de parciales."""
 
-        # 1. Validación de Entrada
+        # 1. Validación de Entrada (Puede ocurrir en paralelo)
         es_valido, payload, status = _validar_datos_entrega(request, current_app.config)
         if not es_valido:
             return jsonify(payload), status
@@ -311,90 +319,91 @@ def crear_app(
                 400,
             )
 
-        # 3. Reglas de Negocio e Idempotencia (Reentregas)
-        puede_entregar, es_nuevo, msj_error = _verificar_politica_reentrega(
-            ruta_db, legajo
-        )
-
-        if not puede_entregar:
-            # Si no puede entregar, chequeamos si es un reintento del MISMO archivo
-            entrega_previa = persistencia.obtener_datos_entrega_previa(ruta_db, legajo)
-
-            if entrega_previa:
-                hash_previo, comprobante_previo = entrega_previa
-                if hash_previo == hash_servidor:
-                    # Idempotencia lograda: es el mismo examen, respondemos éxito silenciando el error.
-                    logging.info(
-                        f"IDEMPOTENCIA: Reintento silencioso validado para legajo {legajo}."
-                    )
-                    return (
-                        jsonify(
-                            {
-                                "mensaje": "Parcial entregado exitosamente (Reintento validado)",
-                                "comprobante": comprobante_previo,
-                            }
-                        ),
-                        200,
-                    )
-
-            # Si el hash es distinto, es una sobreescritura maliciosa o no autorizada.
-            logging.warning(
-                f"Reentrega bloqueada para {payload['apellidos']} ({legajo}) - IP: {payload['ip']}. Intento de sobreescritura."
+        with lock_entregas:
+            # 3. Reglas de Negocio e Idempotencia (Reentregas)
+            puede_entregar, es_nuevo, msj_error = _verificar_politica_reentrega(
+                ruta_db, legajo
             )
-            return jsonify({"error": msj_error}), 403
 
-        # 4. Persistencia en Disco Físico
-        exito_io, msj_falla = _guardar_archivo_atomico(
-            archivo,
-            current_app.config["CARPETA_ENTREGAS"],
-            payload["nombre_final"],
-            hash_servidor,
-        )
-        if not exito_io:
-            logging.error(
-                f"Error IO guardando entrega de {payload['apellidos']}: {msj_falla}",
-                exc_info=True,
+            if not puede_entregar:
+                entrega_previa = persistencia.obtener_datos_entrega_previa(
+                    ruta_db, legajo
+                )
+
+                if entrega_previa:
+                    hash_previo, comprobante_previo = entrega_previa
+                    if hash_previo == hash_servidor:
+                        logging.info(
+                            f"IDEMPOTENCIA: Reintento silencioso validado para legajo {legajo}."
+                        )
+                        return (
+                            jsonify(
+                                {
+                                    "mensaje": "Parcial entregado exitosamente (Reintento validado)",
+                                    "comprobante": comprobante_previo,
+                                }
+                            ),
+                            200,
+                        )
+
+                logging.warning(
+                    f"Reentrega bloqueada para {payload['apellidos']} ({legajo}) - IP: {payload['ip']}. Intento de sobreescritura."
+                )
+                return jsonify({"error": msj_error}), 403
+
+            # 4. Persistencia en Disco Físico
+            exito_io, msj_falla = _guardar_archivo_atomico(
+                archivo,
+                current_app.config["CARPETA_ENTREGAS"],
+                payload["nombre_final"],
+                hash_servidor,
             )
-            return jsonify({"error": f"Error interno al guardar: {msj_falla}"}), 500
+            if not exito_io:
+                logging.error(
+                    f"Error IO guardando entrega de {payload['apellidos']}: {msj_falla}",
+                    exc_info=True,
+                )
+                return jsonify({"error": f"Error interno al guardar: {msj_falla}"}), 500
 
-        # 5. Persistencia en Base de Datos
-        # Generamos el comprobante corto (ej: A7F3-21BC) para el alumno (R11)
-        codigo_comprobante = f"{hash_servidor[:4].upper()}-{hash_servidor[4:8].upper()}"
-
-        try:
-            persistencia.registrar_entrega_exitosa(
-                ruta_db=ruta_db,
-                legajo=legajo,
-                apellidos=payload["apellidos"],
-                nombres=payload["nombres"],
-                ip_vinculada=payload["ip"],
-                hostname=payload["hostname"],
-                timestamp=payload["momento_entrega"],
-                nombre_archivo=payload["nombre_final"],
-                hash_archivo=hash_servidor,
-                codigo_comprobante=codigo_comprobante,
-                es_nuevo_alumno=es_nuevo,
+            # 5. Persistencia en Base de Datos
+            codigo_comprobante = (
+                f"{hash_servidor[:4].upper()}-{hash_servidor[4:8].upper()}"
             )
-        except Exception as e:
-            logging.error(
-                f"Error DB asintiendo entrega de {payload['apellidos']}: {str(e)}",
-                exc_info=True,
-            )
-            return jsonify({"error": "Error interno en base de datos"}), 500
 
-        # Éxito Total
-        logging.info(
-            f"NUEVA ENTREGA: {payload['apellidos']} {payload['nombres']} | Legajo: {legajo} | IP: {payload['ip']} | Comp: {codigo_comprobante}"
-        )
-        return (
-            jsonify(
-                {
-                    "mensaje": "Parcial entregado exitosamente",
-                    "comprobante": codigo_comprobante,
-                }
-            ),
-            200,
-        )
+            try:
+                persistencia.registrar_entrega_exitosa(
+                    ruta_db=ruta_db,
+                    legajo=legajo,
+                    apellidos=payload["apellidos"],
+                    nombres=payload["nombres"],
+                    ip_vinculada=payload["ip"],
+                    hostname=payload["hostname"],
+                    timestamp=payload["momento_entrega"],
+                    nombre_archivo=payload["nombre_final"],
+                    hash_archivo=hash_servidor,
+                    codigo_comprobante=codigo_comprobante,
+                    es_nuevo_alumno=es_nuevo,
+                )
+            except Exception as e:
+                logging.error(
+                    f"Error DB asintiendo entrega de {payload['apellidos']}: {str(e)}",
+                    exc_info=True,
+                )
+                return jsonify({"error": "Error interno en base de datos"}), 500
+
+            # Éxito Total
+            logging.info(
+                f"NUEVA ENTREGA: {payload['apellidos']} {payload['nombres']} | Legajo: {legajo} | IP: {payload['ip']} | Comp: {codigo_comprobante}"
+            )
+            return (
+                jsonify(
+                    {
+                        "mensaje": "Parcial entregado exitosamente",
+                        "comprobante": codigo_comprobante,
+                    }
+                ),
+                200,
+            )
 
     return app
 

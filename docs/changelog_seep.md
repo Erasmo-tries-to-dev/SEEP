@@ -3,7 +3,25 @@
 Todas las mejoras notables de este proyecto se documentarán en este archivo.
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
-## [v0.5.0] - 2026-10-11 - en curso
+## [0.5.1] - 2026-10-14
+
+### 🛡️ Seguridad e Integridad (Recomendaciones Priorizadas)
+
+- **Validación Criptográfica End-to-End (R5):** El cliente ahora calcula la firma SHA-256 del parcial localmente. El servidor valida esta firma al recibir el archivo, rechazando instantáneamente entregas corrompidas por cortes de red[cite: 1, 2, 3].
+- **Seguridad contra Fuerza Bruta (S5):** Migración del PIN numérico a un formato alfanumérico seguro de 6 caracteres usando el módulo `secrets`[cite: 3]. Implementación de _Rate Limiting_ en memoria (bloqueo automático de IP tras 5 intentos fallidos por 60 segundos)[cite: 3, 4].
+- **Auditoría de Hardware en Guardado:** El guardado atómico ahora incluye una segunda capa de verificación. El servidor re-calcula el hash leyendo el archivo recién escrito en disco para garantizar que el sistema operativo no haya corrompido los datos durante el I/O[cite: 3, 4].
+
+### 🚀 Mejoras de Red y Experiencia (R11)
+
+- **Idempotencia de Entregas:** Resiliencia total ante microcortes de WiFi. Si un alumno sufre un timeout y el cliente reintenta el envío, el servidor valida si es el mismo archivo exacto y responde exitosamente devolviendo el comprobante original sin generar duplicados ni bloqueos[cite: 4].
+- **Comprobantes Cortos:** Implementación del código de 8 caracteres (ej. A7F3-B2C1) derivado del hash, devuelto directamente al alumno en la interfaz gráfica para que lo anote en la hoja del parcial como evidencia[cite: 3, 4].
+- **Módulo Core Compartido:** Unificación del algoritmo de lectura en bloques y cálculo de hash en `seep_config.py` para asegurar sincronía absoluta entre cliente y servidor[cite: 1, 2, 3].
+
+### 🐛 Correcciones
+
+- **Bloqueo Sincrónico de Instancias (Fail-Fast):** Resolución del bug del "panel zombi" en Windows. El servidor docente realiza ahora un toque de socket UDP/TCP en el hilo principal durante el arranque, abortando con una alerta nativa si detecta otro servidor SEEP corriendo en segundo plano, evitando bloqueos paralelos en SQLite.
+
+## [v0.5.0] - 2026-10-11
 
 ### Arquitectura y Datos (Fase 1)
 
