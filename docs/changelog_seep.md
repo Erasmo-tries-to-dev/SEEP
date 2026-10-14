@@ -22,6 +22,15 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
 - **Seguridad Visual:** La interfaz advierte visualmente (⚠️) si una reentrega se realiza desde una dirección IP distinta a la del envío original para prevenir suplantaciones.
 - **Manejo de Errores Críticos:** Integración de ventanas emergentes nativas (`messagebox`) para advertir sobre puertos bloqueados o errores de base de datos antes del cierre del sistema.
 
+### Refactorización Estructural y Código Limpio (Fase 3)
+
+- **Modularización del Servidor:** Arquitectura dividida por responsabilidades bajo el paquete `servidor_modulos/` (`api.py`, `interfaz.py`, `persistencia.py`), manteniendo un punto de entrada liviano en la raíz.
+- **Desacoplamiento del Cliente:** Extracción completa de la capa de red hacia `cliente_modulos/cliente_red.py`, aislando las peticiones HTTP (`requests`) de la interfaz visual.
+- **Implementación de DTOs:** Incorporación del patrón de diseño Data Transfer Object mediante `dataclasses` (`DatosEntrega`, `ResultadoEntrega`) para una comunicación robusta entre hilos en el cliente.
+- **Robustez de Red (Fail-Fast):** Validación temprana de direcciones IP mediante el módulo `ipaddress` y manejo seguro de respuestas HTTP 200 con JSON inválidos, eliminando falsos positivos de error.
+- **Suite de Pruebas de Caracterización:** Integración de `requests-mock` para aislar y validar el comportamiento del cliente ante escenarios críticos (Timeouts, HTTP 403, 500) sin depender del servidor.
+- **Estándares de Calidad (Clean Code):** Aplicación de Type Hinting riguroso, extracción de números mágicos a constantes configurables y estandarización de Docstrings (PEP-8) en todo el código base.
+
 ## [v0.4.0] - 2026-10-11
 
 ### Seguridad
