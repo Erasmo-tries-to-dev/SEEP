@@ -6,7 +6,6 @@ Está 100% libre de código de interfaz gráfica (Tkinter).
 """
 
 import errno
-import hashlib
 import logging
 import os
 import random
@@ -29,7 +28,6 @@ from servidor_modulos import persistencia
 CARACTERES_INVALIDOS_EN_NOMBRE: list[str] = ["<", ">", ":", '"', "\\", "|", "?", "*"]
 MAX_LONGITUD_NOMBRES: int = 80
 MAX_LONGITUD_LEGAJO: int = 30
-TAMANO_BLOQUE_HASH: int = 4096
 PIN_MIN: int = 1000
 PIN_MAX: int = 9999
 HOST_BIND: str = "0.0.0.0"
@@ -84,18 +82,6 @@ def limpiar_cadena(texto: str) -> str:
     return texto_limpio.strip()
 
 
-def calcular_hash(archivo: Any) -> str:
-    """
-    Calcula el hash SHA-256 de un archivo en memoria leyendo en bloques
-    para no saturar la RAM con archivos grandes, y luego rebobina el puntero.
-    """
-    sha256_hash = hashlib.sha256()
-    for bloque in iter(lambda: archivo.read(TAMANO_BLOQUE_HASH), b""):
-        sha256_hash.update(bloque)
-    archivo.seek(0)
-    return sha256_hash.hexdigest()
-
-
 def _generar_pin() -> str:
     """Genera un PIN numérico aleatorio de 4 dígitos para autorizar entregas."""
     return str(random.randint(PIN_MIN, PIN_MAX))
@@ -138,6 +124,7 @@ def _validar_datos_entrega(
     apellidos = req.form.get("apellidos")
     nombres = req.form.get("nombres")
     identificador = req.form.get("identificador")
+    hash_cliente = req.form.get("hash_cliente")
     archivo = req.files.get("file")
 
     if not all([pin, apellidos, nombres, identificador, archivo]):
@@ -178,6 +165,7 @@ def _validar_datos_entrega(
         "archivo": archivo,
         "nombre_final": nombre_final,
         "momento_entrega": momento_entrega,
+        "hash_cliente": hash_cliente,
     }
     return True, datos_limpios, 200
 
@@ -204,27 +192,27 @@ def _verificar_politica_reentrega(ruta_db: str, legajo: str) -> Tuple[bool, bool
 
 def _guardar_archivo_atomico(
     archivo: Any, carpeta_destino: str, nombre_final: str
-) -> Tuple[bool, str, str]:
+) -> Tuple[bool, str]:
     """
     Fase 3: Escribe el archivo parcial primero con extensión temporal (.tmp).
     Si el sistema operativo confirma la escritura, lo renombra al final.
-    Retorna (exito, hash_archivo, mensaje_de_error).
+    Retorna (exito, mensaje_de_error).
+    NOTA: Ya no calcula el hash acá. Como es comun se movio a "seep_config".
     """
-    hash_archivo = calcular_hash(archivo)
     ruta_guardado = os.path.join(carpeta_destino, nombre_final)
     ruta_temporal = ruta_guardado + ".tmp"
 
     try:
         archivo.save(ruta_temporal)
         os.replace(ruta_temporal, ruta_guardado)
-        return True, hash_archivo, ""
+        return True, ""
     except Exception as e:
         if os.path.exists(ruta_temporal):
             try:
                 os.remove(ruta_temporal)
             except Exception:
                 pass
-        return False, "", str(e)
+        return False, str(e)
 
 
 # -----------------------------------------------------------------------------
@@ -264,6 +252,8 @@ def crear_app(
 
         legajo = payload["identificador"]
         ruta_db = current_app.config["RUTA_DB"]
+        archivo = payload["archivo"]
+        hash_cliente = payload["hash_cliente"]
 
         # 2. Reglas de Negocio (Reentregas)
         puede_entregar, es_nuevo, msj_error = _verificar_politica_reentrega(
@@ -275,9 +265,24 @@ def crear_app(
             )
             return jsonify({"error": msj_error}), 403
 
-        # 3. Persistencia en Disco Físico
-        exito_io, hash_archivo, msj_falla = _guardar_archivo_atomico(
-            payload["archivo"],
+        # 3. Verificación de Integridad Criptográfica (R5)
+        hash_servidor = seep_config.calcular_hash(archivo)
+        if hash_cliente and hash_cliente != hash_servidor:
+            logging.warning(
+                f"Archivo corrupto detectado (Hash mismatch) para {payload['apellidos']} ({legajo})"
+            )
+            return (
+                jsonify(
+                    {
+                        "error": "Error de integridad: El archivo se corrompió durante el envío. Volvé a entregarlo."
+                    }
+                ),
+                400,
+            )
+
+        # 4. Persistencia en Disco Físico
+        exito_io, msj_falla = _guardar_archivo_atomico(
+            archivo,
             current_app.config["CARPETA_ENTREGAS"],
             payload["nombre_final"],
         )
@@ -288,8 +293,10 @@ def crear_app(
             )
             return jsonify({"error": f"Error interno al guardar: {msj_falla}"}), 500
 
-        # 4. Persistencia en Base de Datos
-        codigo_comprobante = hash_archivo[:6].upper()
+        # 5. Persistencia en Base de Datos
+        # Generamos el comprobante corto (ej: A7F3-21BC) para el alumno (R11)
+        codigo_comprobante = f"{hash_servidor[:4].upper()}-{hash_servidor[4:8].upper()}"
+
         try:
             persistencia.registrar_entrega_exitosa(
                 ruta_db=ruta_db,
@@ -300,7 +307,7 @@ def crear_app(
                 hostname=payload["hostname"],
                 timestamp=payload["momento_entrega"],
                 nombre_archivo=payload["nombre_final"],
-                hash_archivo=hash_archivo,
+                hash_archivo=hash_servidor,
                 codigo_comprobante=codigo_comprobante,
                 es_nuevo_alumno=es_nuevo,
             )
@@ -319,7 +326,7 @@ def crear_app(
             jsonify(
                 {
                     "mensaje": "Parcial entregado exitosamente",
-                    "comprobante": codigo_comprobante,
+                    "comprobante": codigo_comprobante,  # <-- Devuelve el código exacto
                 }
             ),
             200,

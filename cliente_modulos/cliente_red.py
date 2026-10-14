@@ -45,7 +45,7 @@ def enviar_examen(datos: DatosEntrega) -> ResultadoEntrega:
     """
     Ejecuta el ciclo de red completo (Ping + Upload) de forma segura.
     """
-    # FIX 3: Validar IP antes de intentar conectarse (Fail-Fast)
+    # Fase 0: Validar IP antes de intentar conectarse (Fail-Fast)
     try:
         ipaddress.ip_address(datos.ip)
     except ValueError:
@@ -96,6 +96,11 @@ def enviar_examen(datos: DatosEntrega) -> ResultadoEntrega:
 
     try:
         with open(datos.ruta_archivo, "rb") as archivo:
+
+            hash_cliente = seep_config.calcular_hash(archivo)
+
+            payload["hash_cliente"] = hash_cliente
+
             res_upload = requests.post(
                 f"{url_base}/upload",
                 data=payload,
@@ -103,19 +108,17 @@ def enviar_examen(datos: DatosEntrega) -> ResultadoEntrega:
                 timeout=seep_config.TIMEOUT_UPLOAD,
             )
 
-        # FIX 1: Manejo robusto del 200 OK incluso si el JSON viene roto
         if res_upload.status_code == 200:
             try:
                 comprobante = res_upload.json().get("comprobante", "SIN-CODIGO")
             except ValueError:
-                comprobante = "GUARDADO-OK"  # El archivo llegó, no asustamos al alumno.
+                comprobante = "GUARDADO-OK"
             return ResultadoEntrega(exito=True, comprobante=comprobante)
 
         error_upload = _obtener_texto_error(
             res_upload, "Error al procesar la entrega en el servidor"
         )
 
-        # FIX 2: Dependemos exclusivamente del código HTTP 403, no de palabras mágicas
         es_bloqueo = res_upload.status_code == 403
 
         return ResultadoEntrega(
