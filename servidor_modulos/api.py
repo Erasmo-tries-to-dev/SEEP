@@ -14,59 +14,95 @@ import socket
 import sys
 from datetime import datetime
 from threading import Thread
+from typing import Any, Callable, Dict, Tuple
 
 from flask import Flask, current_app, jsonify, request
+from flask.wrappers import Response
 from waitress import serve
 
 import seep_config
 from servidor_modulos import persistencia
 
-CARACTERES_INVALIDOS_EN_NOMBRE = ["<", ">", ":", '"', "\\", "|", "?", "*"]
+# -----------------------------------------------------------------------------
+# CONSTANTES DE CONFIGURACIÓN Y LÍMITES (Magic Numbers extraídos)
+# -----------------------------------------------------------------------------
+CARACTERES_INVALIDOS_EN_NOMBRE: list[str] = ["<", ">", ":", '"', "\\", "|", "?", "*"]
+MAX_LONGITUD_NOMBRES: int = 80
+MAX_LONGITUD_LEGAJO: int = 30
+TAMANO_BLOQUE_HASH: int = 4096
+PIN_MIN: int = 1000
+PIN_MAX: int = 9999
+HOST_BIND: str = "0.0.0.0"
+IP_DUMMY_CONEXION: str = "10.255.255.255"
+CODIGO_ERROR_PUERTO_WIN: int = 10048
 
 
-def obtener_directorio_base():
+# -----------------------------------------------------------------------------
+# FUNCIONES DE UTILIDAD GENERAL
+# -----------------------------------------------------------------------------
+
+
+def obtener_directorio_base() -> str:
+    """
+    Devuelve la ruta absoluta del directorio donde se ejecuta el programa.
+    Maneja la diferencia entre ejecutar como script (.py) o como binario compilado (.exe).
+    """
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
 
-def obtener_ip_local():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+def obtener_ip_local() -> str:
+    """
+    Determina la dirección IP local del equipo abriendo una conexión UDP simulada.
+    Retorna '127.0.0.1' como fallback si no hay interfaz de red activa.
+    """
+    conexion_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.connect(("10.255.255.255", 1))
-        ip = s.getsockname()[0]
+        conexion_socket.connect((IP_DUMMY_CONEXION, 1))
+        ip_local = conexion_socket.getsockname()[0]
     except Exception:
-        ip = "127.0.0.1"
+        ip_local = "127.0.0.1"
     finally:
-        s.close()
-    return ip
+        conexion_socket.close()
+    return ip_local
 
 
-def limpiar_cadena(texto):
+def limpiar_cadena(texto: str) -> str:
+    """
+    Sanitiza un texto ingresado por el usuario para prevenir inyecciones
+    y asegurar compatibilidad con el sistema de archivos del SO.
+    """
     if not texto:
         return ""
-    texto = (
+    texto_limpio = (
         texto.replace("\0", "").replace("\n", "").replace("\r", "").replace("\t", "_")
     )
-    texto = texto.replace(" ", "_").replace("/", "-")
+    texto_limpio = texto_limpio.replace(" ", "_").replace("/", "-")
     for caracter in CARACTERES_INVALIDOS_EN_NOMBRE:
-        texto = texto.replace(caracter, "")
-    return texto.strip()
+        texto_limpio = texto_limpio.replace(caracter, "")
+    return texto_limpio.strip()
 
 
-def calcular_hash(archivo):
+def calcular_hash(archivo: Any) -> str:
+    """
+    Calcula el hash SHA-256 de un archivo en memoria leyendo en bloques
+    para no saturar la RAM con archivos grandes, y luego rebobina el puntero.
+    """
     sha256_hash = hashlib.sha256()
-    for bloque in iter(lambda: archivo.read(4096), b""):
+    for bloque in iter(lambda: archivo.read(TAMANO_BLOQUE_HASH), b""):
         sha256_hash.update(bloque)
     archivo.seek(0)
     return sha256_hash.hexdigest()
 
 
-def _generar_pin():
-    return str(random.randint(1000, 9999))
+def _generar_pin() -> str:
+    """Genera un PIN numérico aleatorio de 4 dígitos para autorizar entregas."""
+    return str(random.randint(PIN_MIN, PIN_MAX))
 
 
-def _respuesta_version_incompatible(version_cliente):
+def _respuesta_version_incompatible(version_cliente: str) -> Tuple[Response, int]:
+    """Genera la respuesta estándar HTTP 426 cuando el cliente está desactualizado."""
     return (
         jsonify(
             {
@@ -79,12 +115,17 @@ def _respuesta_version_incompatible(version_cliente):
 
 
 # -----------------------------------------------------------------------------
-# FUNCIONES AUXILIARES DE LA RUTA UPLOAD (Refactoring 4)
+# FUNCIONES AUXILIARES DE LA RUTA UPLOAD
 # -----------------------------------------------------------------------------
 
 
-def _validar_datos_entrega(req, config):
-    """Fase 1: Extrae, sanitiza y valida el payload. Retorna (es_valido, datos/error, status_code)."""
+def _validar_datos_entrega(
+    req: request, config: dict
+) -> Tuple[bool, Dict[str, Any], int]:
+    """
+    Fase 1: Extrae, sanitiza y valida el payload del formulario HTTP.
+    Retorna un booleano de éxito, los datos procesados (o el error), y el código HTTP.
+    """
     version = req.form.get("version")
     if version != seep_config.VERSION_SEEP:
         return (
@@ -107,7 +148,11 @@ def _validar_datos_entrega(req, config):
     id_seguro = limpiar_cadena(identificador)
     host_seguro = limpiar_cadena(req.form.get("hostname", "Desconocido"))
 
-    if len(ap_seguro) > 80 or len(nom_seguro) > 80 or len(id_seguro) > 30:
+    if (
+        len(ap_seguro) > MAX_LONGITUD_NOMBRES
+        or len(nom_seguro) > MAX_LONGITUD_NOMBRES
+        or len(id_seguro) > MAX_LONGITUD_LEGAJO
+    ):
         return False, {"error": "Los campos exceden la longitud máxima permitida"}, 400
 
     if pin != config["PIN"]:
@@ -137,8 +182,11 @@ def _validar_datos_entrega(req, config):
     return True, datos_limpios, 200
 
 
-def _verificar_politica_reentrega(ruta_db, legajo):
-    """Fase 2: Aplica regla de negocio de bloqueos. Retorna (puede_entregar, es_nuevo_alumno, msj_error)."""
+def _verificar_politica_reentrega(ruta_db: str, legajo: str) -> Tuple[bool, bool, str]:
+    """
+    Fase 2: Verifica en base de datos si el alumno tiene permitido entregar.
+    Retorna (puede_entregar, es_nuevo_alumno, mensaje_de_error).
+    """
     resultado = persistencia.consultar_estado_alumno(ruta_db, legajo)
     if resultado is None:
         return True, True, ""
@@ -154,8 +202,14 @@ def _verificar_politica_reentrega(ruta_db, legajo):
     return True, False, ""
 
 
-def _guardar_archivo_atomico(archivo, carpeta_destino, nombre_final):
-    """Fase 3: Escribe en disco de forma segura. Retorna (exito, hash_str, error_msg)."""
+def _guardar_archivo_atomico(
+    archivo: Any, carpeta_destino: str, nombre_final: str
+) -> Tuple[bool, str, str]:
+    """
+    Fase 3: Escribe el archivo parcial primero con extensión temporal (.tmp).
+    Si el sistema operativo confirma la escritura, lo renombra al final.
+    Retorna (exito, hash_archivo, mensaje_de_error).
+    """
     hash_archivo = calcular_hash(archivo)
     ruta_guardado = os.path.join(carpeta_destino, nombre_final)
     ruta_temporal = ruta_guardado + ".tmp"
@@ -174,11 +228,14 @@ def _guardar_archivo_atomico(archivo, carpeta_destino, nombre_final):
 
 
 # -----------------------------------------------------------------------------
-# APPLICATION FACTORY Y RUTAS
+# APPLICATION FACTORY Y RUTAS FLASK
 # -----------------------------------------------------------------------------
 
 
-def crear_app(modulo_elegido, pin_fijo, carpeta_elegida, ruta_db):
+def crear_app(
+    modulo_elegido: str, pin_fijo: str, carpeta_elegida: str, ruta_db: str
+) -> Flask:
+    """Configura e inicializa la aplicación Flask y sus rutas (endpoints)."""
     app = Flask(__name__)
     app.config["PIN"] = pin_fijo
     app.config["MODULO"] = modulo_elegido
@@ -189,14 +246,15 @@ def crear_app(modulo_elegido, pin_fijo, carpeta_elegida, ruta_db):
     os.makedirs(carpeta_elegida, exist_ok=True)
 
     @app.route("/ping", methods=["GET"])
-    def ping():
+    def ping() -> Tuple[Response, int]:
+        """Endpoint para que el cliente verifique conexión y versión del servidor."""
         version = request.args.get("version", "")
         if version != seep_config.VERSION_SEEP:
             return _respuesta_version_incompatible(version)
         return jsonify({"status": "ok", "mensaje": "Servidor activo"}), 200
 
     @app.route("/upload", methods=["POST"])
-    def upload():
+    def upload() -> Tuple[Response, int]:
         """Endpoint orquestador de recepción de parciales."""
 
         # 1. Validación de Entrada
@@ -270,13 +328,26 @@ def crear_app(modulo_elegido, pin_fijo, carpeta_elegida, ruta_db):
     return app
 
 
-def iniciar_servidor_en_hilo(app, callback_error):
-    def _run():
+# -----------------------------------------------------------------------------
+# EJECUCIÓN DEL SERVIDOR WSGI
+# -----------------------------------------------------------------------------
+
+
+def iniciar_servidor_en_hilo(
+    app: Flask, callback_error: Callable[[str, str], None]
+) -> Thread:
+    """
+    Ejecuta el servidor Waitress en un hilo demonio secundario.
+    Captura errores de red (ej. puerto ocupado) y notifica a la interfaz gráfica
+    mediante el callback proporcionado.
+    """
+
+    def _run() -> None:
         try:
-            serve(app, host="0.0.0.0", port=seep_config.PUERTO_API)
+            serve(app, host=HOST_BIND, port=seep_config.PUERTO_API)
         except OSError as e:
             es_puerto_ocupado = (getattr(e, "errno", None) == errno.EADDRINUSE) or (
-                getattr(e, "winerror", None) == 10048
+                getattr(e, "winerror", None) == CODIGO_ERROR_PUERTO_WIN
             )
             if es_puerto_ocupado:
                 titulo = "❌ ERROR CRÍTICO - Puerto Ocupado"
@@ -288,6 +359,7 @@ def iniciar_servidor_en_hilo(app, callback_error):
             else:
                 titulo = "❌ ERROR CRÍTICO de Red"
                 mensaje = f"Ocurrió un error inesperado:\n{e}"
+
             callback_error(titulo, mensaje)
             os._exit(1)
 
