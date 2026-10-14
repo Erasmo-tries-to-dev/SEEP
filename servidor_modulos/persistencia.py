@@ -120,6 +120,19 @@ def consultar_estado_alumno(ruta_db: str, legajo: str) -> Optional[Tuple[int]]:
         return cursor.fetchone()
 
 
+def obtener_datos_entrega_previa(ruta_db: str, legajo: str):
+    """Busca si el alumno ya tiene una entrega y devuelve su (hash_archivo, codigo_comprobante)."""
+    import sqlite3
+
+    with sqlite3.connect(ruta_db) as conexion:
+        cursor = conexion.cursor()
+        cursor.execute(
+            "SELECT hash_archivo, codigo_comprobante FROM entregas WHERE legajo = ?",
+            (legajo,),
+        )
+        return cursor.fetchone()  # Retorna una tupla (hash, comprobante) o None
+
+
 def registrar_entrega_exitosa(
     ruta_db: str,
     legajo: str,

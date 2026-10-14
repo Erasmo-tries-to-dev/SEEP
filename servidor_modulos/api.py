@@ -296,17 +296,7 @@ def crear_app(
         archivo = payload["archivo"]
         hash_cliente = payload["hash_cliente"]
 
-        # 2. Reglas de Negocio (Reentregas)
-        puede_entregar, es_nuevo, msj_error = _verificar_politica_reentrega(
-            ruta_db, legajo
-        )
-        if not puede_entregar:
-            logging.warning(
-                f"Reentrega bloqueada para {payload['apellidos']} ({legajo}) - IP: {payload['ip']}"
-            )
-            return jsonify({"error": msj_error}), 403
-
-        # 3. Verificación de Integridad Criptográfica (R5)
+        # 2. Verificación de Integridad Criptográfica (R5)
         hash_servidor = seep_config.calcular_hash(archivo)
         if hash_cliente and hash_cliente != hash_servidor:
             logging.warning(
@@ -320,6 +310,38 @@ def crear_app(
                 ),
                 400,
             )
+
+        # 3. Reglas de Negocio e Idempotencia (Reentregas)
+        puede_entregar, es_nuevo, msj_error = _verificar_politica_reentrega(
+            ruta_db, legajo
+        )
+
+        if not puede_entregar:
+            # Si no puede entregar, chequeamos si es un reintento del MISMO archivo
+            entrega_previa = persistencia.obtener_datos_entrega_previa(ruta_db, legajo)
+
+            if entrega_previa:
+                hash_previo, comprobante_previo = entrega_previa
+                if hash_previo == hash_servidor:
+                    # Idempotencia lograda: es el mismo examen, respondemos éxito silenciando el error.
+                    logging.info(
+                        f"IDEMPOTENCIA: Reintento silencioso validado para legajo {legajo}."
+                    )
+                    return (
+                        jsonify(
+                            {
+                                "mensaje": "Parcial entregado exitosamente (Reintento validado)",
+                                "comprobante": comprobante_previo,
+                            }
+                        ),
+                        200,
+                    )
+
+            # Si el hash es distinto, es una sobreescritura maliciosa o no autorizada.
+            logging.warning(
+                f"Reentrega bloqueada para {payload['apellidos']} ({legajo}) - IP: {payload['ip']}. Intento de sobreescritura."
+            )
+            return jsonify({"error": msj_error}), 403
 
         # 4. Persistencia en Disco Físico
         exito_io, msj_falla = _guardar_archivo_atomico(
@@ -368,7 +390,7 @@ def crear_app(
             jsonify(
                 {
                     "mensaje": "Parcial entregado exitosamente",
-                    "comprobante": codigo_comprobante,  # <-- Devuelve el código exacto
+                    "comprobante": codigo_comprobante,
                 }
             ),
             200,
