@@ -7,6 +7,18 @@ Garantiza transacciones atómicas (commit/rollback) y el cierre seguro de conexi
 import os
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime
+from typing import Any, Iterator, List, Optional, Tuple
+
+# -----------------------------------------------------------------------------
+# CONSTANTES DE ESTADOS DE BASE DE DATOS
+# -----------------------------------------------------------------------------
+PERMISO_DENEGADO: int = 0
+PERMISO_HABILITADO: int = 1
+
+ENTREGA_INACTIVA: int = 0
+ENTREGA_ACTIVA: int = 1
+
 
 # -----------------------------------------------------------------------------
 # MOTOR DE TRANSACCIONES
@@ -14,14 +26,15 @@ from contextlib import contextmanager
 
 
 @contextmanager
-def conexion_db(ruta_db):
+def conexion_db(ruta_db: str) -> Iterator[sqlite3.Cursor]:
     """
     Maneja la conexión a SQLite garantizando commit automático en caso de éxito,
     rollback en caso de excepción, y el cierre incondicional de la conexión.
+    Actúa como un Gestor de Contexto (utilizable con la sentencia 'with').
     """
     conn = sqlite3.connect(ruta_db)
     try:
-        # El bloque 'with conn' maneja la transacción (commit o rollback)
+        # El bloque 'with conn' maneja la transacción ACID (commit o rollback)
         with conn:
             yield conn.cursor()
     finally:
@@ -29,58 +42,76 @@ def conexion_db(ruta_db):
         conn.close()
 
 
-def _crear_esquema(cursor):
-    """Crea las tablas de una base de datos de sesión nueva."""
+def _crear_esquema(cursor: sqlite3.Cursor) -> None:
+    """Crea las tablas estructurales de una base de datos de sesión nueva."""
     cursor.execute("""
         CREATE TABLE configuracion (
-            pin TEXT, modulo TEXT, fecha TEXT, turno TEXT, aula TEXT
+            pin TEXT, 
+            modulo TEXT, 
+            fecha TEXT, 
+            turno TEXT, 
+            aula TEXT
         )
     """)
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE alumnos (
-            legajo TEXT PRIMARY KEY, apellidos TEXT, nombres TEXT,
-            ip_vinculada TEXT, hostname_vinculado TEXT, reentrega_habilitada INTEGER DEFAULT 0
+            legajo TEXT PRIMARY KEY, 
+            apellidos TEXT, 
+            nombres TEXT,
+            ip_vinculada TEXT, 
+            hostname_vinculado TEXT, 
+            reentrega_habilitada INTEGER DEFAULT {PERMISO_DENEGADO}
         )
     """)
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE entregas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, legajo TEXT, timestamp DATETIME,
-            nombre_archivo TEXT, hash_archivo TEXT, codigo_comprobante TEXT,
-            ip_origen TEXT, es_activa INTEGER DEFAULT 1,
+            id INTEGER PRIMARY KEY AUTOINCREMENT, 
+            legajo TEXT, 
+            timestamp DATETIME,
+            nombre_archivo TEXT, 
+            hash_archivo TEXT, 
+            codigo_comprobante TEXT,
+            ip_origen TEXT, 
+            es_activa INTEGER DEFAULT {ENTREGA_ACTIVA},
             FOREIGN KEY(legajo) REFERENCES alumnos(legajo)
         )
     """)
 
 
 # -----------------------------------------------------------------------------
-# REPOSITORIO DE DATOS (Funciones expuestas)
+# REPOSITORIO DE DATOS (Funciones expuestas a la API e Interfaz)
 # -----------------------------------------------------------------------------
 
 
-def inicializar_base_datos(ruta_db, modulo, fecha_hoy, turno, aula, pin_generado):
+def inicializar_base_datos(
+    ruta_db: str, modulo: str, fecha_hoy: str, turno: str, aula: str, pin_generado: str
+) -> str:
     """
     Crea el esquema si no existe y registra (o recupera) el PIN de la sesión.
-    Retorna el PIN activo.
+    Retorna el PIN activo que debe usar la API.
     """
     db_existe = os.path.exists(ruta_db)
     with conexion_db(ruta_db) as cursor:
         if not db_existe:
             _crear_esquema(cursor)
             cursor.execute(
-                "INSERT INTO configuracion (pin, modulo, fecha, turno, aula) VALUES (?, ?, ?, ?, ?)",
+                """
+                INSERT INTO configuracion (pin, modulo, fecha, turno, aula) 
+                VALUES (?, ?, ?, ?, ?)
+                """,
                 (pin_generado, modulo, fecha_hoy, turno, aula),
             )
             return pin_generado
         else:
             cursor.execute("SELECT pin FROM configuracion LIMIT 1")
             resultado = cursor.fetchone()
-            return resultado[0] if resultado else pin_generado
+            return str(resultado[0]) if resultado else pin_generado
 
 
-def consultar_estado_alumno(ruta_db, legajo):
+def consultar_estado_alumno(ruta_db: str, legajo: str) -> Optional[Tuple[int]]:
     """
-    Busca si el alumno existe.
-    Retorna una tupla (reentrega_habilitada,) o None si es nuevo.
+    Busca si el alumno ya existe en el sistema.
+    Retorna una tupla (reentrega_habilitada,) o None si el alumno es nuevo.
     """
     with conexion_db(ruta_db) as cursor:
         cursor.execute(
@@ -90,46 +121,50 @@ def consultar_estado_alumno(ruta_db, legajo):
 
 
 def registrar_entrega_exitosa(
-    ruta_db,
-    legajo,
-    apellidos,
-    nombres,
-    ip_vinculada,
-    hostname,
-    timestamp,
-    nombre_archivo,
-    hash_archivo,
-    codigo_comprobante,
-    es_nuevo_alumno,
-):
+    ruta_db: str,
+    legajo: str,
+    apellidos: str,
+    nombres: str,
+    ip_vinculada: str,
+    hostname: str,
+    timestamp: datetime,
+    nombre_archivo: str,
+    hash_archivo: str,
+    codigo_comprobante: str,
+    es_nuevo_alumno: bool,
+) -> None:
     """
-    Transacción principal: Registra un alumno si no existe, le consume el permiso
-    de reentrega, desactiva sus parciales anteriores y asienta la nueva entrega.
+    Transacción principal y crítica: Registra un alumno si no existe,
+    le consume el permiso de reentrega, desactiva sus parciales anteriores
+    y asienta la nueva entrega como activa, todo de forma atómica.
     """
     with conexion_db(ruta_db) as cursor:
         if es_nuevo_alumno:
             cursor.execute(
                 """
                 INSERT INTO alumnos (legajo, apellidos, nombres, ip_vinculada, hostname_vinculado, reentrega_habilitada)
-                VALUES (?, ?, ?, ?, ?, 0)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (legajo, apellidos, nombres, ip_vinculada, hostname),
+                (legajo, apellidos, nombres, ip_vinculada, hostname, PERMISO_DENEGADO),
             )
         else:
             # Si ya existía, le consumimos el permiso para que no envíe infinitamente
             cursor.execute(
-                "UPDATE alumnos SET reentrega_habilitada = 0 WHERE legajo = ?",
-                (legajo,),
+                "UPDATE alumnos SET reentrega_habilitada = ? WHERE legajo = ?",
+                (PERMISO_DENEGADO, legajo),
             )
 
-        # Desactivar entregas anteriores
-        cursor.execute("UPDATE entregas SET es_activa = 0 WHERE legajo = ?", (legajo,))
+        # Desactivar entregas anteriores (Soft Delete)
+        cursor.execute(
+            "UPDATE entregas SET es_activa = ? WHERE legajo = ?",
+            (ENTREGA_INACTIVA, legajo),
+        )
 
-        # Insertar la nueva entrega (forzando str() en el timestamp por compatibilidad Python 3.12+)
+        # Insertar la nueva entrega (forzando str() en el timestamp por compatibilidad SQLite)
         cursor.execute(
             """
             INSERT INTO entregas (legajo, timestamp, nombre_archivo, hash_archivo, codigo_comprobante, ip_origen, es_activa)
-            VALUES (?, ?, ?, ?, ?, ?, 1)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 legajo,
@@ -138,33 +173,39 @@ def registrar_entrega_exitosa(
                 hash_archivo,
                 codigo_comprobante,
                 ip_vinculada,
+                ENTREGA_ACTIVA,
             ),
         )
 
 
-def habilitar_reentrega(ruta_db, legajo):
-    """Abre el candado para permitir que un legajo envíe nuevamente."""
+def habilitar_reentrega(ruta_db: str, legajo: str) -> None:
+    """Abre el candado en la tabla alumnos para permitir que un legajo envíe nuevamente."""
     with conexion_db(ruta_db) as cursor:
         cursor.execute(
-            "UPDATE alumnos SET reentrega_habilitada = 1 WHERE legajo = ?", (legajo,)
+            "UPDATE alumnos SET reentrega_habilitada = ? WHERE legajo = ?",
+            (PERMISO_HABILITADO, legajo),
         )
 
 
-def contar_entregas(ruta_db):
-    """Devuelve la cantidad total de entregas (para detectar cambios en la UI)."""
+def contar_entregas(ruta_db: str) -> int:
+    """Devuelve la cantidad total de entregas (utilizado para polling y detección de cambios en GUI)."""
     with conexion_db(ruta_db) as cursor:
         cursor.execute("SELECT COUNT(*) FROM entregas")
-        return cursor.fetchone()[0]
+        resultado = cursor.fetchone()
+        return int(resultado[0]) if resultado else 0
 
 
-def listar_entregas_activas(ruta_db):
-    """Obtiene los datos cruzados para poblar la grilla del docente."""
+def listar_entregas_activas(ruta_db: str) -> List[Tuple[Any, ...]]:
+    """
+    Obtiene los datos cruzados (JOIN) entre alumnos y entregas activas
+    para poblar la grilla del panel docente, ordenados por los más recientes.
+    """
     with conexion_db(ruta_db) as cursor:
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT a.legajo, a.apellidos, a.nombres, e.timestamp, e.codigo_comprobante, a.ip_vinculada, e.ip_origen
             FROM entregas e
             JOIN alumnos a ON e.legajo = a.legajo
-            WHERE e.es_activa = 1
+            WHERE e.es_activa = {ENTREGA_ACTIVA}
             ORDER BY e.timestamp DESC
         """)
         return cursor.fetchall()
