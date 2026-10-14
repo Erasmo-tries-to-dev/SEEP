@@ -8,7 +8,9 @@ Está 100% libre de código de interfaz gráfica (Tkinter).
 import errno
 import logging
 import os
-import random
+import secrets
+import string
+import time
 import socket
 import sys
 from datetime import datetime
@@ -33,7 +35,9 @@ PIN_MAX: int = 9999
 HOST_BIND: str = "0.0.0.0"
 IP_DUMMY_CONEXION: str = "10.255.255.255"
 CODIGO_ERROR_PUERTO_WIN: int = 10048
-
+MAX_INTENTOS_PIN: int = 5
+TIEMPO_BLOQUEO_SEG: int = 60
+registro_intentos_ip: Dict[str, Tuple[int, float]] = {}
 
 # -----------------------------------------------------------------------------
 # FUNCIONES DE UTILIDAD GENERAL
@@ -83,8 +87,9 @@ def limpiar_cadena(texto: str) -> str:
 
 
 def _generar_pin() -> str:
-    """Genera un PIN numérico aleatorio de 4 dígitos para autorizar entregas."""
-    return str(random.randint(PIN_MIN, PIN_MAX))
+    """Genera un PIN alfanumérico seguro de 6 caracteres (excluyendo ambiguos como O y 0)."""
+    caracteres = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(caracteres) for _ in range(6))
 
 
 def _respuesta_version_incompatible(version_cliente: str) -> Tuple[Response, int]:
@@ -142,8 +147,34 @@ def _validar_datos_entrega(
     ):
         return False, {"error": "Los campos exceden la longitud máxima permitida"}, 400
 
+    ip_cliente = req.remote_addr
+    ahora = time.time()
+    fallos, ultimo_intento = registro_intentos_ip.get(ip_cliente, (0, 0.0))
+
+    if fallos >= MAX_INTENTOS_PIN:
+        if (ahora - ultimo_intento) < TIEMPO_BLOQUEO_SEG:
+            tiempo_restante = int(TIEMPO_BLOQUEO_SEG - (ahora - ultimo_intento))
+            return (
+                False,
+                {
+                    "error": f"Demasiados intentos fallidos. IP bloqueada por {tiempo_restante} segundos."
+                },
+                429,
+            )
+        else:
+            fallos = 0
+
     if pin != config["PIN"]:
-        return False, {"error": "PIN incorrecto"}, 403
+        registro_intentos_ip[ip_cliente] = (fallos + 1, ahora)
+        intentos_restantes = MAX_INTENTOS_PIN - (fallos + 1)
+        return (
+            False,
+            {"error": f"PIN incorrecto. Te quedan {intentos_restantes} intentos."},
+            403,
+        )
+
+    if ip_cliente in registro_intentos_ip:
+        del registro_intentos_ip[ip_cliente]
 
     modulo_activo = config["MODULO"]
     es_valido, resultado_ext = seep_config.validar_extension(
