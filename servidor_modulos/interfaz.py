@@ -56,6 +56,14 @@ class InterfazServidor(ctk.CTk):
         self.ultimo_conteo: int = -1
         self.intervalo_actualizacion: int = INTERVALO_ACTUALIZACION_MS
 
+        # --- NUEVOS ATRIBUTOS PARA BÚSQUEDA Y ORDENAMIENTO ---
+        self.filas_cacheadas: list = []
+        self.texto_busqueda = ctk.StringVar()
+        # Escuchamos cada vez que el docente tipea una letra para refrescar en vivo
+        self.texto_busqueda.trace_add("write", lambda *args: self._refrescar_vista())
+        self.columna_orden: int = 3  # Por defecto ordena por la Hora (índice 3)
+        self.orden_descendente: bool = True
+
         self._construir_pantalla_config()
         self._construir_pantalla_dashboard()
 
@@ -122,6 +130,21 @@ class InterfazServidor(ctk.CTk):
         self.lbl_titulo_dash.pack(pady=10)
         self.lbl_info_dash.pack(pady=5)
         self.lbl_ruta_dash.pack(pady=(0, 10))
+
+        # --- NUEVO: BARRA DE BÚSQUEDA SUPERIOR ---
+        self.frame_controles = ctk.CTkFrame(
+            self.frame_dashboard, fg_color="transparent"
+        )
+        self.frame_controles.pack(fill="x", padx=20, pady=(0, 5))
+
+        self.entrada_busqueda = ctk.CTkEntry(
+            self.frame_controles,
+            placeholder_text="🔍 Buscar por apellido, nombre o legajo...",
+            textvariable=self.texto_busqueda,
+            width=350,
+        )
+        self.entrada_busqueda.pack(side="left")
+        # ----------------------------------------
 
         self.frame_lista = ctk.CTkScrollableFrame(
             self.frame_dashboard,
@@ -199,21 +222,55 @@ class InterfazServidor(ctk.CTk):
                 "Error de Base de Datos", f"No se pudo habilitar: {str(e)}"
             )
 
+    def _cambiar_orden(self, col_index: int) -> None:
+        """Actualiza el estado de ordenamiento y refresca la vista inmediatamente."""
+        if self.columna_orden == col_index:
+            # Si hace clic en la misma columna, invierte el orden (Ascendente/Descendente)
+            self.orden_descendente = not self.orden_descendente
+        else:
+            # Si cambia de columna, ordena ascendente por defecto
+            self.columna_orden = col_index
+            self.orden_descendente = False
+        self._refrescar_vista()
+
     def dibujar_encabezados(self) -> None:
-        """Renderiza la primera fila de la grilla con los títulos de las columnas."""
+        """Renderiza la primera fila de la grilla con los títulos interactivos."""
+        # Tupla: (Texto a mostrar, índice real en la tupla de Base de Datos)
         encabezados = [
-            "Legajo/DNI",
-            "Apellidos",
-            "Nombres",
-            "Hora",
-            "Comprobante",
-            "Alerta IP",
-            "Acciones",
+            ("Legajo/DNI", 0),
+            ("Apellidos", 1),
+            ("Nombres", 2),
+            ("Hora", 3),
+            ("Comprobante", 4),
+            ("Alerta IP", 5),
+            ("Acciones", -1),  # -1 significa que no se puede ordenar por esta columna
         ]
-        for col, texto in enumerate(encabezados):
-            ctk.CTkLabel(self.frame_lista, text=texto, font=FUENTE_NORMAL_BOLD).grid(
-                row=0, column=col, padx=10, pady=5, sticky="w"
-            )
+
+        for col, (texto, idx_bd) in enumerate(encabezados):
+            if idx_bd != -1:
+                # Calculamos si lleva flechita de ordenamiento
+                flecha = ""
+                if self.columna_orden == idx_bd:
+                    # Invertimos las flechas para que coincida con la lectura natural
+                    flecha = " ▲" if self.orden_descendente else " ▼"
+
+                # Usamos botones transparentes en lugar de Labels para que sean clickeables
+                btn = ctk.CTkButton(
+                    self.frame_lista,
+                    text=texto + flecha,
+                    font=FUENTE_NORMAL_BOLD,
+                    fg_color="transparent",
+                    text_color=("black", "white"),
+                    hover_color=("gray80", "gray30"),
+                    anchor="w",
+                    width=20,
+                    command=lambda i=idx_bd: self._cambiar_orden(i),
+                )
+                btn.grid(row=0, column=col, padx=10, pady=5, sticky="w")
+            else:
+                ctk.CTkLabel(
+                    self.frame_lista, text=texto, font=FUENTE_NORMAL_BOLD
+                ).grid(row=0, column=col, padx=10, pady=5, sticky="w")
 
     def dibujar_fila(self, indice: int, fila: Tuple[Any, ...]) -> None:
         """
@@ -255,11 +312,51 @@ class InterfazServidor(ctk.CTk):
             ),
         ).grid(row=indice, column=6, padx=10, pady=2, sticky="w")
 
+    def _refrescar_vista(self) -> None:
+        """
+        Motor de renderizado: Filtra, ordena y dibuja la grilla desde la memoria RAM.
+        Se ejecuta al recibir exámenes, al tipear en el buscador, o al ordenar columnas.
+        """
+        # 1. Limpiamos la grilla visual actual
+        for widget in self.frame_lista.winfo_children():
+            widget.destroy()
+
+        self.dibujar_encabezados()
+
+        # 2. Filtrado en vivo por texto (ignorando mayúsculas/minúsculas)
+        query = self.texto_busqueda.get().lower().strip()
+        filas_filtradas = []
+        for fila in self.filas_cacheadas:
+            # Comparamos contra Legajo (0), Apellidos (1) y Nombres (2)
+            if (
+                query in str(fila[0]).lower()
+                or query in str(fila[1]).lower()
+                or query in str(fila[2]).lower()
+            ):
+                filas_filtradas.append(fila)
+
+        # 3. Ordenamiento Dinámico
+        def clave_ordenamiento(f):
+            if self.columna_orden == 5:
+                # Lógica especial para la Alerta IP: Ordena poniendo los "Difiere" arriba
+                ip_difiere = f[5] != f[6]
+                return ip_difiere
+            # Para el resto, ordena como string estándar
+            return str(f[self.columna_orden]).lower() if f[self.columna_orden] else ""
+
+        try:
+            filas_filtradas.sort(key=clave_ordenamiento, reverse=self.orden_descendente)
+        except Exception:
+            pass  # Si por alguna rareza de datos falla, se omite el ordenamiento pero no explota
+
+        # 4. Dibujar las filas resultantes
+        for indice, fila in enumerate(filas_filtradas, start=1):
+            self.dibujar_fila(indice, fila)
+
     def actualizar_grilla(self) -> None:
         """
-        Bucle de actualización (Polling) que consulta el número de entregas.
-        Si hay una nueva entrega, limpia la grilla y la redibuja desde la base de datos.
-        Se reprograma a sí misma utilizando Tkinter.after().
+        Bucle de actualización (Polling). Ahora solo consulta a la base de datos.
+        Si hay entregas nuevas, actualiza el caché en memoria y manda a redibujar.
         """
         if not self.ruta_db:
             return
@@ -268,20 +365,15 @@ class InterfazServidor(ctk.CTk):
             conteo_actual = persistencia.contar_entregas(self.ruta_db)
             if conteo_actual != self.ultimo_conteo:
                 self.ultimo_conteo = conteo_actual
-
-                # Limpiar la grilla actual
-                for widget in self.frame_lista.winfo_children():
-                    widget.destroy()
-
-                self.dibujar_encabezados()
-
-                # Obtener y dibujar los registros frescos
-                filas = persistencia.listar_entregas_activas(self.ruta_db)
-                for indice, fila in enumerate(filas, start=1):
-                    self.dibujar_fila(indice, fila)
+                # Cacheamos los registros frescos de la BD
+                self.filas_cacheadas = persistencia.listar_entregas_activas(
+                    self.ruta_db
+                )
+                # Disparamos el motor de renderizado
+                self._refrescar_vista()
 
         except Exception as e:
             logging.error(f"Error actualizando grilla de entregas: {e}")
 
-        # Reprogramar la próxima lectura
+        # Reprogramar la próxima lectura silenciosa
         self.after(self.intervalo_actualizacion, self.actualizar_grilla)

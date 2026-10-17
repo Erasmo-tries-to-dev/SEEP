@@ -23,16 +23,16 @@ logging.basicConfig(
 )
 
 
+# Esto es un parche temporal debido a que interfaz.py parece no escuchar la excepcion de puerto ocupado, o bien esta nunca de lanza, hay que averiguar porque ocurre esto.
+# No es lo ideal, pero permite verificar si el puerto esta ocupado antes de iniciar la interfaz y mostrar un mensaje de error.
 def verificar_puerto_libre(puerto: int) -> bool:
     """Intenta conectarse al puerto para ver si ya hay un servidor escuchando."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(0.5)  # Un timeout bien corto para que el arranque sea instantáneo
+        s.settimeout(0.5)
         try:
-            # Tocamos el timbre. Si logramos entrar, el puerto está ocupado.
             s.connect(("127.0.0.1", puerto))
             return False
         except (ConnectionRefusedError, TimeoutError, socket.timeout, OSError):
-            # Si nadie atiende y rechaza la conexión, la casa está vacía (puerto libre).
             return True
 
 
