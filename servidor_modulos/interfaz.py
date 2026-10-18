@@ -1,6 +1,9 @@
 """
 Módulo de Interfaz Gráfica (GUI) de SEEP (Servidor Docente).
 Contiene la clase principal que maneja las pantallas de configuración y el dashboard de monitoreo en vivo.
+# Nota: Hay muchos refactorings que se pueden hacer aca para que deje de ser un archiv tan grande y dificil de leer.
+# Pero primero conviene decidir si se quiere seguir usando tkinter para la interfaz docente, ya que ha mostrado limitaciones.
+# Por ahora el rendimiento es aceptable pero no ideal.
 """
 
 import logging
@@ -657,6 +660,7 @@ class InterfazServidor(ctk.CTk):
 
         self.after(0, _mostrar_y_cerrar_aplicacion)
 
+    # NOTA(refactor): Considerar seriamente mover esta funcion a un utils.
     def abrir_carpeta_entregas(self) -> None:
         """
         Invoca al sistema operativo anfitrión para abrir la ubicación física
