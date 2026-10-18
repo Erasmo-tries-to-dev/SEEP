@@ -3,6 +3,23 @@
 Todas las mejoras notables de este proyecto se documentarán en este archivo.
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.7.0] - 2026-10-18
+
+### Añadido (Added)
+
+- **Sistema de Auto-Discovery (Faro UDP):** Implementación de un modelo de descubrimiento de red "Server Beacon". El servidor emite periódicamente su disponibilidad por broadcast (puerto 5555), permitiendo que los clientes se vinculen sin intervención manual del alumno.
+- **Soporte Multired (Multihoming):** Nuevo escáner de interfaces (`obtener_ips_locales`) que detecta todas las tarjetas de red de la PC docente. El Faro UDP itera sobre cada IP válida garantizando la entrega del broadcast incluso en presencia de redes virtuales (VirtualBox, VPNs) o múltiples routers.
+- **Escucha Universal HTTP:** El servidor principal (Waitress) ahora se levanta vinculándose a `0.0.0.0`, permitiendo la recepción de entregas simultáneas provenientes de diferentes infraestructuras físicas (ej. Wi-Fi institucional + Router de la cátedra).
+
+### Cambios (Changed)
+
+- **Fallback Silencioso en Cliente:** El campo IP del `cliente_alumno.py` arranca bloqueado intentando captar el servidor. Si a los 5 segundos la red aísla el tráfico (AP Isolation), el campo se rehabilita automáticamente degradando con gracia hacia la configuración manual.
+- **Encapsulamiento Arquitectónico:** Refactorización profunda en la inicialización del servidor. La capa de red (`api.py`) ahora es dueña absoluta del descubrimiento y el binding, devolviendo a la capa visual (`interfaz.py`) únicamente los datos procesados para dibujar.
+
+### Mejorado (Improved)
+
+- **Dashboard Docente Honesto:** La cabecera del panel de control ahora exhibe la lista completa de direcciones IP activas separadas por barras (`|`), facilitando el dictado de la IP correcta en pizarrón si el Auto-Discovery es bloqueado por las políticas de red de la facultad.
+
 ## [0.6.0] - 2026-10-18
 
 ### ✨ Mejoras en la Interfaz Docente

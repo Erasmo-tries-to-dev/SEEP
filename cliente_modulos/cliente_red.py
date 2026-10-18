@@ -7,12 +7,15 @@ para desacoplar la lógica de red de la interfaz gráfica.
 import ipaddress
 import logging
 import socket
+import json
 from dataclasses import dataclass
 from typing import Optional
 
 import requests
 
 import seep_config
+
+PUERTO_BEACON = 5555
 
 
 @dataclass
@@ -31,6 +34,48 @@ class ResultadoEntrega:
     comprobante: Optional[str] = None
     mensaje_error: Optional[str] = None
     bloqueado_por_reentrega: bool = False
+
+
+def buscar_servidor_en_red(timeout_segundos: int = 5) -> Optional[str]:
+    """
+    Abre un socket UDP para escuchar el faro (Beacon) del servidor docente.
+    Retorna la IP detectada en formato string, o None si expira el tiempo
+    de espera (Timeout) debido a aislamiento de red o ausencia del servidor.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    # Permitimos reutilizar el puerto por si varios clientes corren en la misma máquina (útil para pruebas)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    # Nos ponemos a escuchar en todas las interfaces, en el puerto acordado
+    sock.bind(("0.0.0.0", PUERTO_BEACON))
+    sock.settimeout(timeout_segundos)
+
+    logging.info(f"Buscando servidor SEEP en red local (Puerto UDP {PUERTO_BEACON})...")
+
+    try:
+        while True:
+            datos, direccion_origen = sock.recvfrom(1024)
+            try:
+                payload = json.loads(datos.decode("utf-8"))
+
+                # Validamos que el paquete sea de nuestra aplicación y no ruido de la red
+                if payload.get("tipo") == "SEEP_BEACON":
+                    ip_detectada = payload.get("ip")
+                    logging.info(
+                        f"¡Servidor detectado automáticamente en IP: {ip_detectada}!"
+                    )
+                    return ip_detectada
+            except json.JSONDecodeError:
+                continue  # Ignoramos paquetes que no sean JSON válido
+
+    except socket.timeout:
+        logging.warning(
+            "Tiempo de espera agotado. No se detectó ningún servidor en la red local."
+        )
+        return None
+    finally:
+        sock.close()
 
 
 def _obtener_texto_error(respuesta: requests.Response, mensaje_por_defecto: str) -> str:

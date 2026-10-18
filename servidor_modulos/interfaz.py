@@ -541,16 +541,20 @@ class InterfazServidor(ctk.CTk):
         )
 
         app = api.crear_app(modulo, pin_sesion, ruta_carpeta, self.ruta_db)
-        ip_local = api.obtener_ip_local()
-        api.iniciar_servidor_en_hilo(app, callback_error=self.mostrar_error_critico)
+
+        hilo_servidor, lista_ips = api.iniciar_servidor_en_hilo(
+            app, callback_error=self.mostrar_error_critico
+        )
 
         self.title(f"SEEP - Panel Docente | Módulo: {modulo.upper()} | Aula: {aula}")
         self.frame_config.pack_forget()
         self.frame_dashboard.pack(pady=20, padx=20, fill="both", expand=True)
 
-        self.lbl_info_dash.configure(text=f"IP: {ip_local}   |   PIN: {pin_sesion}")
-        self.ruta_entregas = ruta_carpeta
+        # Prepara y dibuja el string de IPs
+        ips_str = " | ".join(lista_ips)
+        self.lbl_info_dash.configure(text=f"IPs: {ips_str}   |   PIN: {pin_sesion}")
 
+        self.ruta_entregas = ruta_carpeta
         self.actualizar_grilla()
 
     def mostrar_error_critico(self, titulo: str, mensaje: str) -> None:

@@ -13,9 +13,10 @@ import string
 import time
 import socket
 import sys
+import json
 from datetime import datetime
 from threading import Thread, Lock
-from typing import Any, Callable, Dict, Tuple
+from typing import Any, Callable, Dict, Tuple, List
 
 from flask import Flask, current_app, jsonify, request
 from flask.wrappers import Response
@@ -33,10 +34,10 @@ MAX_LONGITUD_LEGAJO: int = 30
 PIN_MIN: int = 1000
 PIN_MAX: int = 9999
 HOST_BIND: str = "0.0.0.0"
-IP_DUMMY_CONEXION: str = "10.255.255.255"
 CODIGO_ERROR_PUERTO_WIN: int = 10048
 MAX_INTENTOS_PIN: int = 5
 TIEMPO_BLOQUEO_SEG: int = 60
+PUERTO_BEACON: int = 5555  # Puerto UDP para el Auto-Discovery
 
 # --- ESTADOS COMPARTIDOS EN MEMORIA ---
 registro_intentos_ip: Dict[str, Tuple[int, float]] = {}
@@ -60,20 +61,26 @@ def obtener_directorio_base() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
-def obtener_ip_local() -> str:
+def obtener_ips_locales() -> List[str]:
     """
-    Determina la dirección IP local del equipo abriendo una conexión UDP simulada.
-    Retorna '127.0.0.1' como fallback si no hay interfaz de red activa.
+    Escanea la máquina y devuelve una lista con TODAS las direcciones IPv4 válidas
+    de las placas de red conectadas (físicas o virtuales), ignorando '127.0.0.1'.
     """
-    conexion_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    ips_validas = []
     try:
-        conexion_socket.connect((IP_DUMMY_CONEXION, 1))
-        ip_local = conexion_socket.getsockname()[0]
+        nombre_host = socket.gethostname()
+        _, _, ips = socket.gethostbyname_ex(nombre_host)
+        for ip in ips:
+            if not ip.startswith("127."):
+                ips_validas.append(ip)
     except Exception:
-        ip_local = "127.0.0.1"
-    finally:
-        conexion_socket.close()
-    return ip_local
+        pass
+
+    # Si por alguna razón extraña no detectó nada (red apagada), devolvemos fallback
+    if not ips_validas:
+        ips_validas = ["127.0.0.1"]
+
+    return ips_validas
 
 
 def limpiar_cadena(texto: str) -> str:
@@ -376,7 +383,7 @@ def crear_app(
                     legajo=legajo,
                     apellidos=payload["apellidos"],
                     nombres=payload["nombres"],
-                    ip_vinculada=payload["ip"],
+                    ip_peticion_actual=payload["ip"],
                     hostname=payload["hostname"],
                     timestamp=payload["momento_entrega"],
                     nombre_archivo=payload["nombre_final"],
@@ -409,18 +416,72 @@ def crear_app(
 
 
 # -----------------------------------------------------------------------------
+# AUTO-DISCOVERY (Faro Multidifusión UDP)
+# -----------------------------------------------------------------------------
+
+
+def _faro_udp_multired(ips_locales: List[str], modulo: str) -> None:
+    """
+    Hilo en segundo plano que transmite iterativamente por cada placa de red detectada
+    la IP correspondiente hacia toda la subred, evadiendo configuraciones erróneas de ruteo.
+    """
+    logging.info(
+        f"Faro UDP Multidifusión encendido en puerto {PUERTO_BEACON}. Escaneando {len(ips_locales)} red(es)."
+    )
+
+    while True:
+        for ip in ips_locales:
+            sock = None
+            try:
+                # 1. Creamos un socket de corta vida para esta red
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
+                # 2. Forzamos la salida física por esta placa de red específica
+                sock.bind((ip, 0))
+
+                # 3. Empaquetamos la IP correcta para esta red
+                datos_faro = {"tipo": "SEEP_BEACON", "ip": ip, "modulo": modulo}
+                paquete_bytes = json.dumps(datos_faro).encode("utf-8")
+
+                # 4. Gritamos a toda la subred y cerramos
+                sock.sendto(paquete_bytes, ("255.255.255.255", PUERTO_BEACON))
+            except Exception:
+                pass  # Ignoramos placas virtuales muertas que no admiten broadcast
+            finally:
+                if sock:
+                    sock.close()
+
+        time.sleep(2)
+
+
+def iniciar_faro_en_hilo(ips_locales: List[str], modulo: str) -> None:
+    """Punto de entrada público para lanzar el Auto-Discovery."""
+    if not ips_locales:
+        return
+
+    hilo_faro = Thread(
+        target=_faro_udp_multired, args=(ips_locales, modulo), daemon=True
+    )
+    hilo_faro.start()
+
+
+# -----------------------------------------------------------------------------
 # EJECUCIÓN DEL SERVIDOR WSGI
 # -----------------------------------------------------------------------------
 
 
 def iniciar_servidor_en_hilo(
     app: Flask, callback_error: Callable[[str, str], None]
-) -> Thread:
+) -> Tuple[Thread, List[str]]:
     """
     Ejecuta el servidor Waitress en un hilo demonio secundario.
-    Captura errores de red (ej. puerto ocupado) y notifica a la interfaz gráfica
-    mediante el callback proporcionado.
+    Detecta las IPs, enciende automáticamente el Faro UDP y retorna la lista de IPs.
     """
+    ips_locales = obtener_ips_locales()
+
+    if ips_locales:
+        iniciar_faro_en_hilo(ips_locales, app.config["MODULO"])
 
     def _run() -> None:
         try:
@@ -449,4 +510,6 @@ def iniciar_servidor_en_hilo(
 
     hilo = Thread(target=_run, daemon=True)
     hilo.start()
-    return hilo
+
+    # 3. Devuelve el hilo y las IPs listas para ser dibujadas
+    return hilo, ips_locales
