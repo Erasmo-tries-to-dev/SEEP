@@ -17,10 +17,7 @@ from servidor_modulos import api, persistencia
 # -----------------------------------------------------------------------------
 # CONSTANTES DE CONFIGURACIÓN VISUAL Y LÍMITES
 # -----------------------------------------------------------------------------
-# Geometría ajustada para pantallas de 14" (ThinkPads de los laboratorios)
 GEOMETRIA_VENTANA: str = "1000x600"
-
-# Intervalo de actualización de la grilla en milisegundos (3 segundos)
 INTERVALO_ACTUALIZACION_MS: int = 3000
 
 # Paleta de Colores
@@ -32,7 +29,6 @@ COLOR_BOTON_PELIGRO: str = "#8B0000"
 COLOR_BOTON_PELIGRO_HOVER: str = "#FF0000"
 
 # Fuentes Tipográficas
-# Roboto no esta por defecto en windows, cambiar por otra mas linda luego
 FUENTE_TITULO: Tuple[str, int, str] = ("Roboto", 24, "bold")
 FUENTE_SUBTITULO: Tuple[str, int, str] = ("Roboto", 18, "bold")
 FUENTE_NORMAL_BOLD: Tuple[str, int, str] = ("Roboto", 14, "bold")
@@ -44,8 +40,6 @@ FUENTE_NUMERO_GRANDE: Tuple[str, int, str] = ("Roboto", 36, "bold")
 class InterfazServidor(ctk.CTk):
     """
     Clase principal de la Interfaz Gráfica de Usuario (GUI) del Servidor Docente.
-    Gestiona la configuración inicial, el arranque del sistema y la visualización
-    en tiempo real de las entregas recibidas.
     """
 
     def __init__(self) -> None:
@@ -56,23 +50,25 @@ class InterfazServidor(ctk.CTk):
         self.title("SEEP - Configuración Inicial")
         self.geometry(GEOMETRIA_VENTANA)
 
-        # Atributos de estado (Type Hinting para evitar globales)
+        # Atributos de estado y rutas
         self.ruta_db: Optional[str] = None
         self.ruta_entregas: Optional[str] = None
         self.ultimo_conteo: int = -1
         self.intervalo_actualizacion: int = INTERVALO_ACTUALIZACION_MS
-
-        # --- NUEVO: Atributo para el Debouncing de la búsqueda ---
         self._temporizador_busqueda: Optional[str] = None
 
-        # --- ATRIBUTOS PARA BÚSQUEDA Y ORDENAMIENTO ---
+        # --- OPTIMIZACIONES: ESTRUCTURAS DE CACHÉ Y POOLING ---
         self.filas_cacheadas: list = []
-        self.texto_busqueda = ctk.StringVar()
+        self._pool_filas: list = []  # Almacena los widgets instanciados de la grilla
+        self._botones_encabezado: dict = {}  # Almacena los botones de los títulos
+        self._ultima_firma_vista: Optional[tuple] = (
+            None  # Firma de estado para omitir renders
+        )
 
-        # En lugar de llamar directo al refresco, programamos la búsqueda con retraso
+        self.texto_busqueda = ctk.StringVar()
         self.texto_busqueda.trace_add("write", lambda *args: self._programar_busqueda())
 
-        self.columna_orden: int = 3  # Por defecto ordena por la Hora (índice 3)
+        self.columna_orden: int = 3
         self.orden_descendente: bool = True
 
         self._construir_pantalla_config()
@@ -84,9 +80,7 @@ class InterfazServidor(ctk.CTk):
         self.frame_config.pack(pady=40, padx=40, fill="both", expand=True)
 
         ctk.CTkLabel(
-            self.frame_config,
-            text="Configuración de la Sesión",
-            font=FUENTE_TITULO,
+            self.frame_config, text="Configuración de la Sesión", font=FUENTE_TITULO
         ).pack(pady=20)
 
         ctk.CTkLabel(self.frame_config, text="Módulo a evaluar:").pack(pady=(10, 0))
@@ -122,7 +116,7 @@ class InterfazServidor(ctk.CTk):
         ).pack(pady=20)
 
     def _construir_pantalla_dashboard(self) -> None:
-        """Construye (pero no muestra) la pantalla de la grilla de entregas y el panel superior."""
+        """Construye la pantalla principal del servidor docente."""
         self.frame_dashboard = ctk.CTkFrame(self)
 
         self.lbl_titulo_dash = ctk.CTkLabel(
@@ -138,16 +132,14 @@ class InterfazServidor(ctk.CTk):
         self.lbl_titulo_dash.pack(pady=10)
         self.lbl_info_dash.pack(pady=5)
 
-        # --- PANEL DE ESTADÍSTICAS EN VIVO ---
+        # Panel Estadístico
         self.frame_estadisticas = ctk.CTkFrame(
             self.frame_dashboard, fg_color="transparent"
         )
         self.frame_estadisticas.pack(pady=10, fill="x")
-
         self.frame_estadisticas.grid_columnconfigure(0, weight=1)
         self.frame_estadisticas.grid_columnconfigure(1, weight=1)
 
-        # Caja de Estadísticas: Entregas
         self.frame_entregas = ctk.CTkFrame(self.frame_estadisticas)
         self.frame_entregas.grid(row=0, column=0, padx=10, sticky="e")
         ctk.CTkLabel(
@@ -161,7 +153,6 @@ class InterfazServidor(ctk.CTk):
         )
         self.lbl_contador_entregas.pack(pady=(0, 5))
 
-        # Caja de Estadísticas: Alertas
         self.frame_alertas = ctk.CTkFrame(self.frame_estadisticas)
         self.frame_alertas.grid(row=0, column=1, padx=10, sticky="w")
         ctk.CTkLabel(
@@ -174,9 +165,8 @@ class InterfazServidor(ctk.CTk):
             text_color=COLOR_ALERTA_IP_OK,
         )
         self.lbl_contador_alertas.pack(pady=(0, 5))
-        # --------------------------------------------
 
-        # Botón para abrir la carpeta contenedora
+        # Botones de Acción
         self.btn_abrir_carpeta = ctk.CTkButton(
             self.frame_dashboard,
             text="📁 Abrir Carpeta de Entregas",
@@ -188,7 +178,6 @@ class InterfazServidor(ctk.CTk):
         )
         self.btn_abrir_carpeta.pack(pady=(0, 10))
 
-        # --- Botón para exportar a CSV ---
         self.btn_exportar_csv = ctk.CTkButton(
             self.frame_dashboard,
             text="📊 Exportar a CSV",
@@ -199,14 +188,12 @@ class InterfazServidor(ctk.CTk):
             command=self.exportar_csv_gui,
         )
         self.btn_exportar_csv.pack(pady=(0, 10))
-        # ----------------------------------------
 
-        # --- BARRA DE BÚSQUEDA SUPERIOR ---
+        # Barra de Búsqueda
         self.frame_controles = ctk.CTkFrame(
             self.frame_dashboard, fg_color="transparent"
         )
         self.frame_controles.pack(fill="x", padx=20, pady=(0, 5))
-
         self.entrada_busqueda = ctk.CTkEntry(
             self.frame_controles,
             placeholder_text="🔍 Buscar por apellido, nombre o legajo...",
@@ -214,75 +201,327 @@ class InterfazServidor(ctk.CTk):
             width=350,
         )
         self.entrada_busqueda.pack(side="left")
-        # ----------------------------------------
 
-        # --- NUEVO: MARCO FIJO PARA ENCABEZADOS ---
-        # Separamos los encabezados del área de scroll para que siempre estén visibles
+        # Marco de encabezados fijos
         self.frame_encabezados = ctk.CTkFrame(self.frame_dashboard)
         self.frame_encabezados.pack(fill="x", padx=20, pady=(10, 0))
-        # ------------------------------------------
 
-        self.frame_lista = ctk.CTkScrollableFrame(
-            self.frame_dashboard,
-        )
-        # Cambiamos pady para que quede pegado a los encabezados
+        # Marco scrollable de lista
+        self.frame_lista = ctk.CTkScrollableFrame(self.frame_dashboard)
         self.frame_lista.pack(pady=(0, 10), padx=20, fill="both", expand=True)
 
-        # Dibujamos los encabezados estáticos una sola vez al construir el panel
         self.dibujar_encabezados()
 
     def _programar_busqueda(self) -> None:
-        """
-        Técnica de Debouncing. Evita que la interfaz se congele al escribir rápido.
-        Espera 300ms después de la última pulsación de tecla para redibujar la grilla.
-        """
+        """Debouncing de búsqueda."""
         if self._temporizador_busqueda is not None:
-            # Si el usuario tecleó otra letra, cancelamos el renderizado anterior
             self.after_cancel(self._temporizador_busqueda)
-
-        # Programamos un nuevo renderizado para dentro de 300ms
         self._temporizador_busqueda = self.after(300, self._refrescar_vista)
 
-    def abrir_carpeta_entregas(self) -> None:
-        """Abre la carpeta de entregas en el explorador de archivos del sistema operativo."""
-        if not self.ruta_entregas or not os.path.exists(self.ruta_entregas):
-            messagebox.showerror("Error", "La carpeta no existe o no se ha creado aún.")
+    def _cambiar_orden(self, col_index: int) -> None:
+        """Invierte o cambia la columna de orden y refresca."""
+        if self.columna_orden == col_index:
+            self.orden_descendente = not self.orden_descendente
+        else:
+            self.columna_orden = col_index
+            self.orden_descendente = False
+
+        self.dibujar_encabezados()
+        self._refrescar_vista()
+
+    def dibujar_encabezados(self) -> None:
+        """
+        OPTIMIZACIÓN: Encabezados estáticos y centrados.
+        """
+        encabezados = [
+            ("Legajo/DNI", 0, 100),
+            ("Apellidos", 1, 150),
+            ("Nombres", 2, 150),
+            ("Hora", 3, 80),
+            ("Comprobante", 4, 130),  # Aumentado a 130 para que entre cómodo
+            ("Estado", 5, 60),
+            ("Acciones", -1, 100),
+        ]
+
+        # 3. EL TRUCO DEL CENTRADO: Resortes invisibles a los costados
+        self.frame_encabezados.grid_columnconfigure(0, weight=1)
+        self.frame_encabezados.grid_columnconfigure(len(encabezados) + 1, weight=1)
+        self.frame_lista.grid_columnconfigure(0, weight=1)
+        self.frame_lista.grid_columnconfigure(len(encabezados) + 1, weight=1)
+
+        # Si ya se crearon los botones, solo actualizamos las flechas
+        if self._botones_encabezado:
+            for col, (texto, idx_bd, _) in enumerate(encabezados):
+                if idx_bd != -1:
+                    # 2. ESPACIOS FANTASMAS: Mantiene el ancho constante si no tiene flecha
+                    flecha = (
+                        " ▲"
+                        if (self.columna_orden == idx_bd and self.orden_descendente)
+                        else " ▼" if (self.columna_orden == idx_bd) else "   "
+                    )
+                    self._botones_encabezado[idx_bd].configure(text=texto + flecha)
             return
 
-        try:
-            if os.name == "nt":  # Windows
-                os.startfile(self.ruta_entregas)
-            else:  # macOS / Linux
-                import subprocess, sys
+        # Si no existen, los instanciamos por primera vez
+        for col, (texto, idx_bd, ancho) in enumerate(encabezados):
+            # Desplazamos las columnas reales 1 lugar a la derecha para dejar la col 0 como resorte
+            col_real = col + 1
 
-                comando = "open" if sys.platform == "darwin" else "xdg-open"
-                subprocess.run([comando, self.ruta_entregas])
-        except Exception as e:
-            logging.error(f"No se pudo abrir la carpeta: {e}")
-            messagebox.showerror("Error", f"No se pudo abrir la carpeta de destino.")
-
-    def exportar_csv_gui(self) -> None:
-        """Invoca al backend para generar el reporte en CSV y notifica al usuario."""
-        if not self.ruta_entregas or not self.ruta_db:
-            messagebox.showerror("Error", "El servidor no está iniciado.")
-            return
-
-        try:
-            ruta_csv = os.path.join(self.ruta_entregas, "asistencia_parcial.csv")
-            persistencia.exportar_asistencia_csv(self.ruta_db, ruta_csv)
-            messagebox.showinfo(
-                "Éxito", f"Reporte exportado correctamente en:\n{ruta_csv}"
+            # Bloqueamos el ancho de cada columna para que nunca más "salten" al clickear
+            self.frame_encabezados.grid_columnconfigure(
+                col_real, minsize=ancho, weight=0
             )
+            self.frame_lista.grid_columnconfigure(col_real, minsize=ancho, weight=0)
+
+            if idx_bd != -1:
+                flecha = (
+                    " ▲"
+                    if (self.columna_orden == idx_bd and self.orden_descendente)
+                    else " ▼" if (self.columna_orden == idx_bd) else "   "
+                )
+                btn = ctk.CTkButton(
+                    self.frame_encabezados,
+                    text=texto + flecha,
+                    font=FUENTE_NORMAL_BOLD,
+                    fg_color="transparent",
+                    text_color=("black", "white"),
+                    hover_color=("gray80", "gray30"),
+                    anchor="w",
+                    width=ancho,
+                    command=lambda i=idx_bd: self._cambiar_orden(i),
+                )
+                btn.grid(row=0, column=col_real, padx=10, pady=5, sticky="w")
+                self._botones_encabezado[idx_bd] = btn
+            else:
+                ctk.CTkLabel(
+                    self.frame_encabezados,
+                    text=texto,
+                    font=FUENTE_NORMAL_BOLD,
+                    width=ancho,
+                    anchor="w",
+                ).grid(row=0, column=col_real, padx=10, pady=5, sticky="w")
+
+    def _configurar_fila_en_pool(self, indice: int, fila: tuple) -> None:
+        """
+        OPTIMIZACIÓN: Object Pooling y anulación de efectos indeseados de hover.
+        """
+        (
+            legajo,
+            apellidos,
+            nombres,
+            timestamp,
+            comprobante,
+            ip_vinculada,
+            ip_origen,
+            alertas,
+            _,
+        ) = fila
+        hora_str = str(timestamp)[11:19]
+        tiene_alertas = len(alertas) > 0
+
+        if indice < len(self._pool_filas):
+            w = self._pool_filas[indice]
+            w["legajo"].configure(text=legajo)
+            w["apellidos"].configure(text=apellidos)
+            w["nombres"].configure(text=nombres)
+            w["hora"].configure(text=hora_str)
+            w["comprobante"].configure(text=comprobante)
+
+            if tiene_alertas:
+                # 1. HOVER APAGADO para el reciclaje
+                w["estado"].configure(
+                    text="⚠️",
+                    text_color=COLOR_ALERTA_IP_DIFIERE,
+                    hover=False,
+                    command=lambda l=legajo, n=nombres, a=apellidos, w_al=alertas: self.mostrar_modal_alertas(
+                        l, n, a, w_al
+                    ),
+                )
+            else:
+                w["estado"].configure(
+                    text="✅", text_color=COLOR_EXITO, hover=False, command=None
+                )
+
+            w["accion"].configure(
+                command=lambda l=legajo, n=nombres, a=apellidos: self.habilitar_reentrega_gui(
+                    l, n, a
+                )
+            )
+
+            for widget in w.values():
+                widget.grid()
+
+        else:
+            w = {}
+            # Notar que usamos column=1, 2, 3... por culpa del resorte en column=0
+            w["legajo"] = ctk.CTkLabel(
+                self.frame_lista, text=legajo, width=100, anchor="w"
+            )
+            w["legajo"].grid(row=indice, column=1, padx=10, pady=2, sticky="w")
+
+            w["apellidos"] = ctk.CTkLabel(
+                self.frame_lista, text=apellidos, width=150, anchor="w"
+            )
+            w["apellidos"].grid(row=indice, column=2, padx=10, pady=2, sticky="w")
+
+            w["nombres"] = ctk.CTkLabel(
+                self.frame_lista, text=nombres, width=150, anchor="w"
+            )
+            w["nombres"].grid(row=indice, column=3, padx=10, pady=2, sticky="w")
+
+            w["hora"] = ctk.CTkLabel(
+                self.frame_lista, text=hora_str, width=80, anchor="w"
+            )
+            w["hora"].grid(row=indice, column=4, padx=10, pady=2, sticky="w")
+
+            w["comprobante"] = ctk.CTkLabel(
+                self.frame_lista,
+                text=comprobante,
+                font=FUENTE_MONOSPACE,
+                width=130,
+                anchor="w",
+            )
+            w["comprobante"].grid(row=indice, column=5, padx=10, pady=2, sticky="w")
+
+            if tiene_alertas:
+                # 1. HOVER APAGADO para la creación limpia
+                w["estado"] = ctk.CTkButton(
+                    self.frame_lista,
+                    text="⚠️",
+                    width=60,
+                    fg_color="transparent",
+                    text_color=COLOR_ALERTA_IP_DIFIERE,
+                    font=FUENTE_NORMAL_BOLD,
+                    hover=False,
+                    command=lambda l=legajo, n=nombres, a=apellidos, w_al=alertas: self.mostrar_modal_alertas(
+                        l, n, a, w_al
+                    ),
+                )
+            else:
+                w["estado"] = ctk.CTkButton(
+                    self.frame_lista,
+                    text="✅",
+                    width=60,
+                    fg_color="transparent",
+                    text_color=COLOR_EXITO,
+                    font=FUENTE_NORMAL_BOLD,
+                    hover=False,
+                )
+            w["estado"].grid(row=indice, column=6, padx=10, pady=2, sticky="w")
+
+            w["accion"] = ctk.CTkButton(
+                self.frame_lista,
+                text="Habilitar",
+                width=100,
+                fg_color=COLOR_BOTON_PELIGRO,
+                hover_color=COLOR_BOTON_PELIGRO_HOVER,
+                command=lambda l=legajo, n=nombres, a=apellidos: self.habilitar_reentrega_gui(
+                    l, n, a
+                ),
+            )
+            w["accion"].grid(row=indice, column=7, padx=10, pady=2, sticky="w")
+
+            self._pool_filas.append(w)
+
+    def _refrescar_vista(self, forzar: bool = False) -> None:
+        """
+        Motor de renderizado hiper-optimizado.
+        Filtra rápido y reutiliza widgets. Solo procesa si hubo cambios de estado.
+        """
+        query = self.texto_busqueda.get().lower().strip()
+
+        # OPTIMIZACIÓN: Short-circuiting. Si nada cambió y no estamos forzando, abortar.
+        firma_actual = (
+            self.ultimo_conteo,
+            query,
+            self.columna_orden,
+            self.orden_descendente,
+        )
+        if not forzar and firma_actual == self._ultima_firma_vista:
+            return
+        self._ultima_firma_vista = firma_actual
+
+        # 1. Filtrado rápido (utiliza la cadena precalculada almacenada en el índice 8)
+        if query:
+            filas_filtradas = [f for f in self.filas_cacheadas if query in f[8]]
+        else:
+            filas_filtradas = self.filas_cacheadas[:]
+
+        # 2. Ordenamiento en memoria
+        def clave_ordenamiento(f):
+            if self.columna_orden == 5:
+                return len(f[7]) > 0
+            return str(f[self.columna_orden]).lower() if f[self.columna_orden] else ""
+
+        try:
+            filas_filtradas.sort(key=clave_ordenamiento, reverse=self.orden_descendente)
+        except Exception:
+            pass
+
+        # 3. Object Pooling: Configurar filas visibles
+        total_filtradas = len(filas_filtradas)
+        for indice, fila in enumerate(filas_filtradas):
+            self._configurar_fila_en_pool(indice, fila)
+
+        # 4. Object Pooling: Ocultar los widgets sobrantes sin destruirlos
+        for i in range(total_filtradas, len(self._pool_filas)):
+            for widget in self._pool_filas[i].values():
+                widget.grid_remove()
+
+    def actualizar_grilla(self) -> None:
+        """Bucle de actualización. Descarga datos, pre-calcula campos y actualiza métricas en 1 sola pasada."""
+        if not self.ruta_db:
+            return
+
+        try:
+            conteo_actual = persistencia.contar_entregas(self.ruta_db)
+            if conteo_actual != self.ultimo_conteo:
+                self.ultimo_conteo = conteo_actual
+                filas_crudas = persistencia.listar_entregas_activas(self.ruta_db)
+
+                # OPTIMIZACIÓN: Datos preprocesados y Estadísticas en 1 sola pasada
+                total_alertas = 0
+                self.filas_cacheadas = []
+
+                for fila in filas_crudas:
+                    # fila = (legajo, apellidos, nombres, timestamp, comprobante, ip_vinc, ip_orig, alertas)
+                    if len(fila[7]) > 0:
+                        total_alertas += 1
+
+                    # Pre-calculamos el texto en minúsculas para que el filtro sea instantáneo
+                    texto_busqueda_precalc = f"{fila[0]} {fila[1]} {fila[2]}".lower()
+
+                    # Agregamos el texto precalculado a la tupla (posición 8)
+                    self.filas_cacheadas.append((*fila, texto_busqueda_precalc))
+
+                # Actualizamos los labels estadísticos
+                self.lbl_contador_entregas.configure(
+                    text=str(len(self.filas_cacheadas))
+                )
+                if total_alertas > 0:
+                    self.lbl_contador_alertas.configure(
+                        text=str(total_alertas), text_color=COLOR_ALERTA_IP_DIFIERE
+                    )
+                else:
+                    self.lbl_contador_alertas.configure(
+                        text="0", text_color=COLOR_ALERTA_IP_OK
+                    )
+
+                # Disparamos el motor de renderizado forzando el dibujado
+                self._refrescar_vista(forzar=True)
+
         except Exception as e:
-            logging.error(f"Error al exportar CSV: {e}")
-            messagebox.showerror("Error", f"No se pudo generar el CSV:\n{e}")
+            logging.error(f"Error actualizando grilla de entregas: {e}")
+
+        # Reprogramar la próxima lectura
+        self.after(self.intervalo_actualizacion, self.actualizar_grilla)
+
+    # -------------------------------------------------------------------------
+    # FUNCIONES DE ARRANQUE Y SISTEMA
+    # -------------------------------------------------------------------------
 
     def iniciar_sistema(self) -> None:
-        """
-        Callback del botón Iniciar. Valida los datos, prepara el entorno,
-        inicia la base de datos, levanta el servidor web en un hilo secundario
-        y realiza la transición visual al dashboard.
-        """
+        """Inicia servidor y bases de datos, cambia interfaz a dashboard."""
         turno = self.entrada_turno.get().strip().upper()
         aula = self.entrada_aula.get().strip().upper()
         modulo = self.var_modulo.get()
@@ -291,7 +530,6 @@ class InterfazServidor(ctk.CTk):
             self.lbl_error.configure(text="Error: Debe completar el Turno y el Aula.")
             return
 
-        # Inicializamos entorno y BD a través del módulo API
         fecha_hoy = datetime.now().strftime("%Y%m%d")
         nombre_carpeta = f"entregas_{modulo}_{fecha_hoy}_{turno}_{aula}"
         ruta_carpeta = os.path.join(api.obtener_directorio_base(), nombre_carpeta)
@@ -302,12 +540,10 @@ class InterfazServidor(ctk.CTk):
             self.ruta_db, modulo, fecha_hoy, turno, aula, api._generar_pin()
         )
 
-        # Arrancamos Flask y Waitress
         app = api.crear_app(modulo, pin_sesion, ruta_carpeta, self.ruta_db)
         ip_local = api.obtener_ip_local()
         api.iniciar_servidor_en_hilo(app, callback_error=self.mostrar_error_critico)
 
-        # Transición de interfaz visual
         self.title(f"SEEP - Panel Docente | Módulo: {modulo.upper()} | Aula: {aula}")
         self.frame_config.pack_forget()
         self.frame_dashboard.pack(pady=20, padx=20, fill="both", expand=True)
@@ -318,8 +554,6 @@ class InterfazServidor(ctk.CTk):
         self.actualizar_grilla()
 
     def mostrar_error_critico(self, titulo: str, mensaje: str) -> None:
-        """Callback ejecutado desde el hilo de la API si el servidor falla al arrancar."""
-
         def _mostrar_y_cerrar():
             messagebox.showerror(titulo, mensaje)
             import os
@@ -328,10 +562,39 @@ class InterfazServidor(ctk.CTk):
 
         self.after(0, _mostrar_y_cerrar)
 
+    def abrir_carpeta_entregas(self) -> None:
+        if not self.ruta_entregas or not os.path.exists(self.ruta_entregas):
+            messagebox.showerror("Error", "La carpeta no existe o no se ha creado aún.")
+            return
+        try:
+            if os.name == "nt":
+                os.startfile(self.ruta_entregas)
+            else:
+                import subprocess, sys
+
+                comando = "open" if sys.platform == "darwin" else "xdg-open"
+                subprocess.run([comando, self.ruta_entregas])
+        except Exception as e:
+            logging.error(f"No se pudo abrir la carpeta: {e}")
+            messagebox.showerror("Error", f"No se pudo abrir la carpeta de destino.")
+
+    def exportar_csv_gui(self) -> None:
+        if not self.ruta_entregas or not self.ruta_db:
+            messagebox.showerror("Error", "El servidor no está iniciado.")
+            return
+        try:
+            ruta_csv = os.path.join(self.ruta_entregas, "asistencia_parcial.csv")
+            persistencia.exportar_asistencia_csv(self.ruta_db, ruta_csv)
+            messagebox.showinfo(
+                "Éxito", f"Reporte exportado correctamente en:\n{ruta_csv}"
+            )
+        except Exception as e:
+            logging.error(f"Error al exportar CSV: {e}")
+            messagebox.showerror("Error", f"No se pudo generar el CSV:\n{e}")
+
     def habilitar_reentrega_gui(
         self, legajo_alumno: str, nombres: str, apellidos: str
     ) -> None:
-        """Actualiza la base de datos para permitir una nueva entrega al alumno seleccionado."""
         if not self.ruta_db:
             return
         try:
@@ -350,12 +613,9 @@ class InterfazServidor(ctk.CTk):
     def mostrar_modal_alertas(
         self, legajo: str, nombres: str, apellidos: str, alertas: list
     ) -> None:
-        """Despliega un modal (CTkToplevel) con los detalles de seguridad de una entrega sospechosa."""
         modal = ctk.CTkToplevel(self)
         modal.title(f"Alertas de Seguridad - {legajo}")
         modal.geometry("450x250")
-
-        # Estas dos líneas obligan a la ventanita a quedarse arriba del panel principal
         modal.attributes("-topmost", True)
         modal.grab_set()
 
@@ -366,7 +626,6 @@ class InterfazServidor(ctk.CTk):
         marco_alertas = ctk.CTkFrame(modal)
         marco_alertas.pack(padx=20, pady=10, fill="both", expand=True)
 
-        # Listamos todas las banderas amarillas que se hayan detectado
         for alerta in alertas:
             ctk.CTkLabel(
                 marco_alertas,
@@ -378,223 +637,3 @@ class InterfazServidor(ctk.CTk):
             ).pack(pady=5, padx=10, anchor="w")
 
         ctk.CTkButton(modal, text="Cerrar", command=modal.destroy).pack(pady=15)
-
-    def _cambiar_orden(self, col_index: int) -> None:
-        """Actualiza el estado de ordenamiento y refresca la vista inmediatamente."""
-        if self.columna_orden == col_index:
-            # Si hace clic en la misma columna, invierte el orden (Ascendente/Descendente)
-            self.orden_descendente = not self.orden_descendente
-        else:
-            # Si cambia de columna, ordena ascendente por defecto
-            self.columna_orden = col_index
-            self.orden_descendente = False
-
-        # Re-dibujamos los títulos para que la flechita cambie al instante
-        self.dibujar_encabezados()
-        self._refrescar_vista()
-
-    def dibujar_encabezados(self) -> None:
-        """Renderiza los títulos interactivos en su propio marco fijo."""
-
-        # Primero limpiamos el marco de encabezados por si las flechitas cambiaron
-        for widget in self.frame_encabezados.winfo_children():
-            widget.destroy()
-
-        # Tupla: (Texto a mostrar, índice real en BD, Ancho fijo de la columna)
-        encabezados = [
-            ("Legajo/DNI", 0, 100),
-            ("Apellidos", 1, 150),
-            ("Nombres", 2, 150),
-            ("Hora", 3, 80),
-            ("Comprobante", 4, 120),
-            ("Estado", 5, 60),
-            ("Acciones", -1, 100),
-        ]
-
-        for col, (texto, idx_bd, ancho) in enumerate(encabezados):
-            if idx_bd != -1:
-                flecha = ""
-                if self.columna_orden == idx_bd:
-                    flecha = " ▲" if self.orden_descendente else " ▼"
-
-                btn = ctk.CTkButton(
-                    self.frame_encabezados,
-                    text=texto + flecha,
-                    font=FUENTE_NORMAL_BOLD,
-                    fg_color="transparent",
-                    text_color=("black", "white"),
-                    hover_color=("gray80", "gray30"),
-                    anchor="w",
-                    width=ancho,  # <-- Sincronizamos el ancho
-                    command=lambda i=idx_bd: self._cambiar_orden(i),
-                )
-                btn.grid(row=0, column=col, padx=10, pady=5, sticky="w")
-            else:
-                ctk.CTkLabel(
-                    self.frame_encabezados,
-                    text=texto,
-                    font=FUENTE_NORMAL_BOLD,
-                    width=ancho,  # <-- Sincronizamos el ancho
-                    anchor="w",
-                ).grid(row=0, column=col, padx=10, pady=5, sticky="w")
-
-    def dibujar_fila(self, indice: int, fila: Tuple[Any, ...]) -> None:
-        """
-        Desempaqueta una tupla de base de datos y dibuja los labels y botones
-        correspondientes en una fila específica de la grilla.
-        """
-        (
-            legajo,
-            apellidos,
-            nombres,
-            timestamp,
-            comprobante,
-            ip_vinculada,
-            ip_origen,
-            alertas,
-        ) = fila
-
-        hora_str = str(timestamp)[11:19]
-
-        # Le asignamos los mismos anchos exactos que definimos en los encabezados
-        celdas = [
-            (ctk.CTkLabel(self.frame_lista, text=legajo, width=100, anchor="w"), 0),
-            (ctk.CTkLabel(self.frame_lista, text=apellidos, width=150, anchor="w"), 1),
-            (ctk.CTkLabel(self.frame_lista, text=nombres, width=150, anchor="w"), 2),
-            (ctk.CTkLabel(self.frame_lista, text=hora_str, width=80, anchor="w"), 3),
-            (
-                ctk.CTkLabel(
-                    self.frame_lista,
-                    text=comprobante,
-                    font=FUENTE_MONOSPACE,
-                    width=120,
-                    anchor="w",
-                ),
-                4,
-            ),
-        ]
-
-        for widget, col in celdas:
-            widget.grid(row=indice, column=col, padx=10, pady=2, sticky="w")
-
-        if alertas:
-            btn_estado = ctk.CTkButton(
-                self.frame_lista,
-                text="⚠️",
-                width=60,  # <-- Ancho fijo de la columna Estado
-                fg_color="transparent",
-                text_color=COLOR_ALERTA_IP_DIFIERE,
-                font=FUENTE_NORMAL_BOLD,
-                hover_color=("gray80", "gray30"),
-                command=lambda l=legajo, n=nombres, a=apellidos, w=alertas: self.mostrar_modal_alertas(
-                    l, n, a, w
-                ),
-            )
-        else:
-            btn_estado = ctk.CTkButton(
-                self.frame_lista,
-                text="✅",
-                width=60,  # <-- Ancho fijo de la columna Estado
-                fg_color="transparent",
-                text_color=COLOR_EXITO,
-                font=FUENTE_NORMAL_BOLD,
-                hover=False,
-            )
-        btn_estado.grid(row=indice, column=5, padx=10, pady=2, sticky="w")
-
-        ctk.CTkButton(
-            self.frame_lista,
-            text="Habilitar",
-            width=100,  # <-- Ancho fijo de la columna Acciones
-            fg_color=COLOR_BOTON_PELIGRO,
-            hover_color=COLOR_BOTON_PELIGRO_HOVER,
-            command=lambda l=legajo, n=nombres, a=apellidos: self.habilitar_reentrega_gui(
-                l, n, a
-            ),
-        ).grid(row=indice, column=6, padx=10, pady=2, sticky="w")
-
-    def _refrescar_vista(self) -> None:
-        """
-        Motor de renderizado: Filtra, ordena y dibuja la grilla desde la memoria RAM.
-        Ya no dibuja los encabezados (ahora son estáticos), solo limpia las filas.
-        """
-        # 1. Limpiamos las filas de alumnos
-        for widget in self.frame_lista.winfo_children():
-            widget.destroy()
-
-        # 2. Filtrado en vivo por texto (ignorando mayúsculas/minúsculas)
-        query = self.texto_busqueda.get().lower().strip()
-        filas_filtradas = []
-        for fila in self.filas_cacheadas:
-            # Comparamos contra Legajo (0), Apellidos (1) y Nombres (2)
-            if (
-                query in str(fila[0]).lower()
-                or query in str(fila[1]).lower()
-                or query in str(fila[2]).lower()
-            ):
-                filas_filtradas.append(fila)
-
-        # 3. Ordenamiento Dinámico
-        def clave_ordenamiento(f):
-            if self.columna_orden == 5:
-                # 3. CORRECCIÓN DEL ORDENAMIENTO POR ALERTAS:
-                # Si la lista de alertas (índice 7) tiene al menos un elemento, retorna True
-                # (Al ordenar descendentemente, los True quedan arriba)
-                tiene_alertas = len(f[7]) > 0
-                return tiene_alertas
-            # Para el resto, ordena como string estándar
-            return str(f[self.columna_orden]).lower() if f[self.columna_orden] else ""
-
-        try:
-            filas_filtradas.sort(key=clave_ordenamiento, reverse=self.orden_descendente)
-        except Exception:
-            pass  # Si por alguna rareza de datos falla, se omite el ordenamiento pero no explota
-
-        # 4. Dibujar las filas resultantes
-        for indice, fila in enumerate(filas_filtradas, start=1):
-            self.dibujar_fila(indice, fila)
-
-    def actualizar_grilla(self) -> None:
-        """
-        Bucle de actualización (Polling). Ahora solo consulta a la base de datos.
-        Si hay entregas nuevas, actualiza el caché en memoria, actualiza los contadores,
-        y manda a redibujar la grilla.
-        """
-        if not self.ruta_db:
-            return
-
-        try:
-            conteo_actual = persistencia.contar_entregas(self.ruta_db)
-            if conteo_actual != self.ultimo_conteo:
-                self.ultimo_conteo = conteo_actual
-
-                # Cacheamos los registros frescos de la BD
-                self.filas_cacheadas = persistencia.listar_entregas_activas(
-                    self.ruta_db
-                )
-
-                # --- ACTUALIZAR ESTADÍSTICAS EN VIVO ---
-                total_entregas = len(self.filas_cacheadas)
-                total_alertas = sum(
-                    1 for fila in self.filas_cacheadas if len(fila[7]) > 0
-                )
-
-                self.lbl_contador_entregas.configure(text=str(total_entregas))
-
-                if total_alertas > 0:
-                    self.lbl_contador_alertas.configure(
-                        text=str(total_alertas), text_color=COLOR_ALERTA_IP_DIFIERE
-                    )
-                else:
-                    self.lbl_contador_alertas.configure(
-                        text="0", text_color=COLOR_ALERTA_IP_OK
-                    )
-
-                # Disparamos el motor de renderizado
-                self._refrescar_vista()
-
-        except Exception as e:
-            logging.error(f"Error actualizando grilla de entregas: {e}")
-
-        # Reprogramar la próxima lectura silenciosa
-        self.after(self.intervalo_actualizacion, self.actualizar_grilla)
