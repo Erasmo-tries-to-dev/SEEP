@@ -53,6 +53,7 @@ class InterfazServidor(ctk.CTk):
 
         # Atributos de estado (Type Hinting para evitar globales)
         self.ruta_db: Optional[str] = None
+        self.ruta_entregas: Optional[str] = None
         self.ultimo_conteo: int = -1
         self.intervalo_actualizacion: int = INTERVALO_ACTUALIZACION_MS
 
@@ -222,6 +223,38 @@ class InterfazServidor(ctk.CTk):
                 "Error de Base de Datos", f"No se pudo habilitar: {str(e)}"
             )
 
+    def mostrar_modal_alertas(
+        self, legajo: str, nombres: str, apellidos: str, alertas: list
+    ) -> None:
+        """Despliega un modal (CTkToplevel) con los detalles de seguridad de una entrega sospechosa."""
+        modal = ctk.CTkToplevel(self)
+        modal.title(f"Alertas de Seguridad - {legajo}")
+        modal.geometry("450x250")
+
+        # Estas dos líneas obligan a la ventanita a quedarse arriba del panel principal
+        modal.attributes("-topmost", True)
+        modal.grab_set()
+
+        ctk.CTkLabel(
+            modal, text=f"Alumno: {apellidos}, {nombres}", font=FUENTE_SUBTITULO
+        ).pack(pady=(20, 10))
+
+        marco_alertas = ctk.CTkFrame(modal)
+        marco_alertas.pack(padx=20, pady=10, fill="both", expand=True)
+
+        # Listamos todas las banderas amarillas que se hayan detectado
+        for alerta in alertas:
+            ctk.CTkLabel(
+                marco_alertas,
+                text=alerta,
+                text_color=COLOR_ALERTA_IP_DIFIERE,
+                font=FUENTE_NORMAL_BOLD,
+                justify="left",
+                wraplength=380,
+            ).pack(pady=5, padx=10, anchor="w")
+
+        ctk.CTkButton(modal, text="Cerrar", command=modal.destroy).pack(pady=15)
+
     def _cambiar_orden(self, col_index: int) -> None:
         """Actualiza el estado de ordenamiento y refresca la vista inmediatamente."""
         if self.columna_orden == col_index:
@@ -242,7 +275,7 @@ class InterfazServidor(ctk.CTk):
             ("Nombres", 2),
             ("Hora", 3),
             ("Comprobante", 4),
-            ("Alerta IP", 5),
+            ("Estado", 5),
             ("Acciones", -1),  # -1 significa que no se puede ordenar por esta columna
         ]
 
@@ -282,9 +315,16 @@ class InterfazServidor(ctk.CTk):
         )
 
         hora_str = str(timestamp)[11:19]
-        ip_difiere = ip_vinculada != ip_origen
-        alerta_ip = "⚠️ Difiere" if ip_difiere else "OK"
-        color_ip = COLOR_ALERTA_IP_DIFIERE if ip_difiere else COLOR_ALERTA_IP_OK
+
+        # --- MOTOR DE REGLAS DE SEGURIDAD ---
+        alertas = []
+        if ip_vinculada != ip_origen:
+            alertas.append(
+                f"• IP de origen difiere:\nSe registró con {ip_vinculada} pero entregó desde {ip_origen}."
+            )
+
+        # (Si en el futuro agregás validación de Hostname, se suma acá con un if)
+        # ------------------------------------
 
         celdas = [
             (ctk.CTkLabel(self.frame_lista, text=legajo), 0),
@@ -295,12 +335,39 @@ class InterfazServidor(ctk.CTk):
                 ctk.CTkLabel(self.frame_lista, text=comprobante, font=FUENTE_MONOSPACE),
                 4,
             ),
-            (ctk.CTkLabel(self.frame_lista, text=alerta_ip, text_color=color_ip), 5),
+            # La columna 5 ahora es el Botón de Estado, lo dibujamos aparte
         ]
 
         for widget, col in celdas:
             widget.grid(row=indice, column=col, padx=10, pady=2, sticky="w")
 
+        if alertas:
+            # Tiene alertas: Mostramos icono ⚠️, color naranja y asignamos el comando
+            btn_estado = ctk.CTkButton(
+                self.frame_lista,
+                text="⚠️",
+                width=40,
+                fg_color="transparent",
+                text_color=COLOR_ALERTA_IP_DIFIERE,
+                font=FUENTE_NORMAL_BOLD,
+                hover_color=("gray80", "gray30"),
+                command=lambda l=legajo, n=nombres, a=apellidos, w=alertas: self.mostrar_modal_alertas(
+                    l, n, a, w
+                ),
+            )
+        else:
+            btn_estado = ctk.CTkButton(
+                self.frame_lista,
+                text="✅",
+                width=40,
+                fg_color="transparent",
+                text_color=COLOR_EXITO,
+                font=FUENTE_NORMAL_BOLD,
+                hover=False,
+            )
+        btn_estado.grid(row=indice, column=5, padx=10, pady=2)
+
+        # --- DIBUJAR BOTÓN HABILITAR (Columna 6) ---
         ctk.CTkButton(
             self.frame_lista,
             text="Habilitar",
