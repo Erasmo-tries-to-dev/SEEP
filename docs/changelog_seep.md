@@ -3,6 +3,30 @@
 Todas las mejoras notables de este proyecto se documentarán en este archivo.
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.6.0] - 2026-10-18
+
+### ✨ Mejoras en la Interfaz Docente
+
+- **Dimensiones Optimizadas:** Se ajustó la geometría de la ventana inicial a `1000x600` para garantizar que la tabla de entregas se visualice correctamente en las pantallas de 14" (ThinkPads) de los laboratorios sin necesidad de maximizar manualmente.
+- **Buscador en Vivo (Debouncing):** Se implementó una barra de búsqueda superior interactiva que permite filtrar a los alumnos por nombre, apellido o legajo en tiempo real.
+- **Ordenamiento Dinámico:** Los encabezados de la tabla ("Legajo/DNI", "Apellidos", "Nombres", "Hora", "Comprobante", "Estado") ahora son botones interactivos. Al hacer clic sobre ellos, la grilla se reordena alfabética o cronológicamente, indicando el sentido con flechas (▲/▼).
+- **Acceso Rápido a Archivos:** Se añadió un nuevo botón `📁 Abrir Carpeta de Entregas` en el panel de control. Al hacer clic, abre automáticamente la carpeta del sistema operativo donde se están guardando los exámenes `.zip` recibidos, agilizando el flujo de trabajo del docente.
+- **Contadores Globales:** El panel superior ahora cuenta con dos indicadores numéricos grandes que se actualizan automáticamente: uno para las "Entregas Recibidas" totales y otro para las "Alertas de Seguridad" detectadas.
+- **Sistema de Alertas Visuales (UX):** Se reemplazó el texto estático de estado por un sistema de íconos minimalistas (`✅` para entregas normales y `⚠️` para anomalías). Al hacer clic en una bandera de advertencia, se despliega un modal (`CTkToplevel`) detallando las razones de seguridad detectadas para ese alumno específico. Se mejoró el contraste del color de alerta utilizando `#FF4500` para una mejor lectura en modos claros y oscuros.
+
+### 🛡️ Seguridad y Auditoría (Motor de Reglas)
+
+- **Prevención de Suplantación (IP Tracking):** El sistema ahora registra internamente la dirección IP con la que el alumno realiza su primer contacto (handshake) y la compara silenciosamente con la IP desde la que envía el archivo final (`.zip`). Si difieren, se levanta una alerta por posible suplantación de identidad o entrega desde un equipo distinto al registrado.
+- **Detección de Clonación de Exámenes (Colisión de Hashes):** El backend de SQLite fue actualizado incorporando _Window Functions_ nativas (`COUNT(...) OVER(PARTITION BY ...)`). El motor ahora evalúa en tiempo real todas las entregas recibidas; si dos alumnos entregan un archivo con el mismo contenido exacto (mismo Hash SHA-256), ambos quedan marcados en el panel docente con una alerta por "Posible clonación de archivo", evidenciando el fraude automático.
+
+### 📊 Reportes y Exportación
+
+- **Exportación de Reporte de Asistencia (CSV):** Se implementó un nuevo botón `📊 Exportar a CSV` en el panel principal que genera un informe completo consolidando toda la sesión de evaluación.
+  - El reporte funciona como una lista de asistencia oficial ("Legajo", "Apellido", "Nombre", "Hora").
+  - Incluye todos los intentos de envío de cada alumno, marcándolos como "FINAL" o "ANTERIOR (Re-entregada)" para evaluar entregas fuera de término.
+  - Genera una columna dedicada a la "Auditoría", donde se exponen claramente las alertas de clonación o suplantación para que el corrector sepa a qué exámenes prestarle atención.
+  - El archivo se codifica en formato `utf-8-sig` y utiliza punto y coma (`;`) como separador, garantizando que Microsoft Excel lo procese correctamente con doble clic sin corromper tildes ni columnas.
+
 ## [0.5.1] - 2026-10-14
 
 ### 🛡️ Seguridad e Integridad (Recomendaciones Priorizadas)
