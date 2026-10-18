@@ -1,6 +1,6 @@
 """
-Módulo de persistencia de SEEP-Servidor Docente.
-Aísla toda la interacción con SQLite mediante el patrón Repositorio.
+Módulo de Persistencia de SEEP (Servidor Docente).
+Aísla toda la interacción con la base de datos SQLite mediante el patrón Repositorio.
 Garantiza transacciones atómicas (commit/rollback) y el cierre seguro de conexiones.
 """
 
@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any, Iterator, List, Optional, Tuple
 
 # -----------------------------------------------------------------------------
-# CONSTANTES DE ESTADOS DE BASE DE DATOS
+# CONSTANTES GLOBALES Y ESTADOS DE NEGOCIO
 # -----------------------------------------------------------------------------
 PERMISO_DENEGADO: int = 0
 PERMISO_HABILITADO: int = 1
@@ -20,32 +20,44 @@ PERMISO_HABILITADO: int = 1
 ENTREGA_INACTIVA: int = 0
 ENTREGA_ACTIVA: int = 1
 
+DELIMITADOR_CSV: str = ";"
+CODIFICACION_CSV: str = "utf-8-sig"
+
 
 # -----------------------------------------------------------------------------
-# MOTOR DE TRANSACCIONES
+# MOTOR DE TRANSACCIONES Y ESQUEMA
 # -----------------------------------------------------------------------------
-
-
 @contextmanager
-def conexion_db(ruta_db: str) -> Iterator[sqlite3.Cursor]:
+def conexion_db(ruta_base_datos: str) -> Iterator[sqlite3.Cursor]:
     """
-    Maneja la conexión a SQLite garantizando commit automático en caso de éxito,
-    rollback en caso de excepción, y el cierre incondicional de la conexión.
-    Actúa como un Gestor de Contexto (utilizable con la sentencia 'with').
+    Maneja la conexión a SQLite de forma segura actuando como Gestor de Contexto.
+    Garantiza el cierre incondicional de la conexión incluso ante excepciones.
+
+    Args:
+        ruta_base_datos (str): Ubicación física de la base SQLite.
+
+    Yields:
+        sqlite3.Cursor: Cursor activo para ejecutar sentencias SQL.
     """
-    conn = sqlite3.connect(ruta_db)
+    conexion = sqlite3.connect(ruta_base_datos)
     try:
-        # El bloque 'with conn' maneja la transacción ACID (commit o rollback)
-        with conn:
-            yield conn.cursor()
+        # RATIONALE: El bloque 'with conexion' delega al motor de SQLite el manejo
+        # de la transacción ACID (ejecutando COMMIT si no hay errores, o ROLLBACK
+        # si se lanza una excepción durante la ejecución del cursor).
+        with conexion:
+            yield conexion.cursor()
     finally:
-        # El bloque 'finally' asegura que no queden bases de datos "bloqueadas"
-        conn.close()
+        conexion.close()
 
 
-def _crear_esquema(cursor: sqlite3.Cursor) -> None:
-    """Crea las tablas estructurales de una base de datos de sesión nueva."""
-    cursor.execute("""
+def _crear_esquema(cursor_activo: sqlite3.Cursor) -> None:
+    """
+    Construye la estructura de tablas para una nueva base de datos de sesión.
+
+    Args:
+        cursor_activo (sqlite3.Cursor): Cursor con transacción abierta.
+    """
+    cursor_activo.execute("""
         CREATE TABLE configuracion (
             pin TEXT, 
             modulo TEXT, 
@@ -54,7 +66,7 @@ def _crear_esquema(cursor: sqlite3.Cursor) -> None:
             aula TEXT
         )
     """)
-    cursor.execute(f"""
+    cursor_activo.execute(f"""
         CREATE TABLE alumnos (
             legajo TEXT PRIMARY KEY, 
             apellidos TEXT, 
@@ -64,7 +76,7 @@ def _crear_esquema(cursor: sqlite3.Cursor) -> None:
             reentrega_habilitada INTEGER DEFAULT {PERMISO_DENEGADO}
         )
     """)
-    cursor.execute(f"""
+    cursor_activo.execute(f"""
         CREATE TABLE entregas (
             id INTEGER PRIMARY KEY AUTOINCREMENT, 
             legajo TEXT, 
@@ -82,49 +94,83 @@ def _crear_esquema(cursor: sqlite3.Cursor) -> None:
 # -----------------------------------------------------------------------------
 # REPOSITORIO DE DATOS (Funciones expuestas a la API e Interfaz)
 # -----------------------------------------------------------------------------
-
-
 def inicializar_base_datos(
-    ruta_db: str, modulo: str, fecha_hoy: str, turno: str, aula: str, pin_generado: str
+    ruta_base_datos: str,
+    modulo_evaluado: str,
+    fecha_hoy: str,
+    turno: str,
+    aula: str,
+    pin_generado: str,
 ) -> str:
     """
-    Crea el esquema si no existe y registra (o recupera) el PIN de la sesión.
-    Retorna el PIN activo que debe usar la API.
+    Inicializa el repositorio. Crea el esquema si el archivo no existe y registra
+    (o recupera) el PIN maestro de la sesión docente.
+
+    Args:
+        ruta_base_datos (str): Ubicación física de la base SQLite.
+        modulo_evaluado (str): Módulo académico de la sesión.
+        fecha_hoy (str): Fecha actual de inicialización.
+        turno (str): Turno asignado al laboratorio.
+        aula (str): Identificador físico del laboratorio.
+        pin_generado (str): Código PIN autogenerado por el servidor.
+
+    Returns:
+        str: El PIN activo para la sesión actual (el generado o el recuperado).
     """
-    db_existe = os.path.exists(ruta_db)
-    with conexion_db(ruta_db) as cursor:
-        if not db_existe:
-            _crear_esquema(cursor)
-            cursor.execute(
+    base_datos_existe = os.path.exists(ruta_base_datos)
+    with conexion_db(ruta_base_datos) as cursor_activo:
+        if not base_datos_existe:
+            _crear_esquema(cursor_activo)
+            cursor_activo.execute(
                 """
                 INSERT INTO configuracion (pin, modulo, fecha, turno, aula) 
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (pin_generado, modulo, fecha_hoy, turno, aula),
+                (pin_generado, modulo_evaluado, fecha_hoy, turno, aula),
             )
             return pin_generado
-        else:
-            cursor.execute("SELECT pin FROM configuracion LIMIT 1")
-            resultado = cursor.fetchone()
-            return str(resultado[0]) if resultado else pin_generado
+
+        cursor_activo.execute("SELECT pin FROM configuracion LIMIT 1")
+        resultado_consulta = cursor_activo.fetchone()
+        return str(resultado_consulta[0]) if resultado_consulta else pin_generado
 
 
-def consultar_estado_alumno(ruta_db: str, legajo: str) -> Optional[Tuple[int]]:
+def consultar_estado_alumno(
+    ruta_base_datos: str, legajo_alumno: str
+) -> Optional[Tuple[int]]:
     """
-    Busca si el alumno ya existe en el sistema.
-    Retorna una tupla (reentrega_habilitada,) o None si el alumno es nuevo.
+    Verifica la existencia de un alumno en la base y su estado de permisos de entrega.
+
+    Args:
+        ruta_base_datos (str): Ubicación física de la base SQLite.
+        legajo_alumno (str): Identificador único del alumno.
+
+    Returns:
+        Optional[Tuple[int]]: Tupla con el valor del permiso, o None si no existe registro previo.
     """
-    with conexion_db(ruta_db) as cursor:
-        cursor.execute(
-            "SELECT reentrega_habilitada FROM alumnos WHERE legajo = ?", (legajo,)
+    with conexion_db(ruta_base_datos) as cursor_activo:
+        cursor_activo.execute(
+            "SELECT reentrega_habilitada FROM alumnos WHERE legajo = ?",
+            (legajo_alumno,),
         )
-        return cursor.fetchone()
+        return cursor_activo.fetchone()
 
 
-def obtener_datos_entrega_previa(ruta_db: str, legajo: str):
-    """Busca el hash y comprobante de la ÚLTIMA entrega del alumno."""
-    with conexion_db(ruta_db) as cursor:
-        cursor.execute(
+def obtener_datos_entrega_previa(
+    ruta_base_datos: str, legajo_alumno: str
+) -> Optional[Tuple[str, str]]:
+    """
+    Recupera la firma criptográfica y el comprobante de la última entrega realizada por un alumno.
+
+    Args:
+        ruta_base_datos (str): Ubicación física de la base SQLite.
+        legajo_alumno (str): Identificador único del alumno.
+
+    Returns:
+        Optional[Tuple[str, str]]: Tupla conteniendo (hash_archivo, codigo_comprobante), o None.
+    """
+    with conexion_db(ruta_base_datos) as cursor_activo:
+        cursor_activo.execute(
             """
             SELECT hash_archivo, codigo_comprobante 
             FROM entregas 
@@ -132,9 +178,9 @@ def obtener_datos_entrega_previa(ruta_db: str, legajo: str):
             ORDER BY timestamp DESC 
             LIMIT 1
             """,
-            (legajo,),
+            (legajo_alumno,),
         )
-        return cursor.fetchone()
+        return cursor_activo.fetchone()
 
 
 def registrar_entrega_exitosa(
@@ -142,7 +188,7 @@ def registrar_entrega_exitosa(
     legajo: str,
     apellidos: str,
     nombres: str,
-    ip_peticion_actual: str,  # <--- CAMBIADO para mayor claridad semántica
+    ip_peticion_actual: str,
     hostname: str,
     timestamp: datetime,
     nombre_archivo: str,
@@ -151,13 +197,25 @@ def registrar_entrega_exitosa(
     es_nuevo_alumno: bool,
 ) -> None:
     """
-    Transacción principal y crítica: Registra un alumno si no existe,
-    le consume el permiso de reentrega, desactiva sus parciales anteriores
-    y asienta la nueva entrega como activa, todo de forma atómica.
+    Registra de forma atómica la recepción de un examen, gestionando altas de alumnos,
+    revocación de permisos de reentrega y soft-deletion de entregas previas.
+
+    Args:
+        ruta_db (str): Ubicación física de la base SQLite.
+        legajo (str): Identificador único del alumno.
+        apellidos (str): Apellidos del alumno.
+        nombres (str): Nombres del alumno.
+        ip_peticion_actual (str): Dirección IP desde donde se transmitió el examen.
+        hostname (str): Nombre de red del equipo de origen.
+        timestamp (datetime): Marca de tiempo exacta de la recepción en servidor.
+        nombre_archivo (str): Nombre final del archivo persistido en disco.
+        hash_archivo (str): Checksum criptográfico del contenido.
+        codigo_comprobante (str): Identificador de recibo generado.
+        es_nuevo_alumno (bool): Bandera que indica si requiere inserción en tabla alumnos.
     """
-    with conexion_db(ruta_db) as cursor:
+    with conexion_db(ruta_db) as cursor_activo:
         if es_nuevo_alumno:
-            cursor.execute(
+            cursor_activo.execute(
                 """
                 INSERT INTO alumnos (legajo, apellidos, nombres, ip_vinculada, hostname_vinculado, reentrega_habilitada)
                 VALUES (?, ?, ?, ?, ?, ?)
@@ -172,20 +230,17 @@ def registrar_entrega_exitosa(
                 ),
             )
         else:
-            # Si ya existía, le consumimos el permiso para que no envíe infinitamente
-            cursor.execute(
+            cursor_activo.execute(
                 "UPDATE alumnos SET reentrega_habilitada = ? WHERE legajo = ?",
                 (PERMISO_DENEGADO, legajo),
             )
 
-        # Desactivar entregas anteriores (Soft Delete)
-        cursor.execute(
+        cursor_activo.execute(
             "UPDATE entregas SET es_activa = ? WHERE legajo = ?",
             (ENTREGA_INACTIVA, legajo),
         )
 
-        # Insertar la nueva entrega
-        cursor.execute(
+        cursor_activo.execute(
             """
             INSERT INTO entregas (legajo, timestamp, nombre_archivo, hash_archivo, codigo_comprobante, ip_origen, es_activa)
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -196,37 +251,61 @@ def registrar_entrega_exitosa(
                 nombre_archivo,
                 hash_archivo,
                 codigo_comprobante,
-                ip_peticion_actual,  # <--- La entrega siempre guarda la IP desde la cual se envió el archivo
+                ip_peticion_actual,
                 ENTREGA_ACTIVA,
             ),
         )
 
 
-def habilitar_reentrega(ruta_db: str, legajo: str) -> None:
-    """Abre el candado en la tabla alumnos para permitir que un legajo envíe nuevamente."""
-    with conexion_db(ruta_db) as cursor:
-        cursor.execute(
+def habilitar_reentrega(ruta_base_datos: str, legajo_alumno: str) -> None:
+    """
+    Concede autorización excepcional a un alumno para sobrescribir su entrega.
+
+    Args:
+        ruta_base_datos (str): Ubicación física de la base SQLite.
+        legajo_alumno (str): Identificador único del alumno autorizado.
+    """
+    with conexion_db(ruta_base_datos) as cursor_activo:
+        cursor_activo.execute(
             "UPDATE alumnos SET reentrega_habilitada = ? WHERE legajo = ?",
-            (PERMISO_HABILITADO, legajo),
+            (PERMISO_HABILITADO, legajo_alumno),
         )
 
 
-def contar_entregas(ruta_db: str) -> int:
-    """Devuelve la cantidad total de entregas (utilizado para polling y detección de cambios en GUI)."""
-    with conexion_db(ruta_db) as cursor:
-        cursor.execute("SELECT COUNT(*) FROM entregas")
-        resultado = cursor.fetchone()
-        return int(resultado[0]) if resultado else 0
+def contar_entregas(ruta_base_datos: str) -> int:
+    """
+    Obtiene el volumen total de entregas almacenadas en el sistema.
+
+    Args:
+        ruta_base_datos (str): Ubicación física de la base SQLite.
+
+    Returns:
+        int: Cantidad absoluta de entregas.
+    """
+    with conexion_db(ruta_base_datos) as cursor_activo:
+        cursor_activo.execute("SELECT COUNT(*) FROM entregas")
+        resultado_conteo = cursor_activo.fetchone()
+        return int(resultado_conteo[0]) if resultado_conteo else 0
 
 
-def listar_entregas_activas(ruta_db: str) -> List[Tuple[Any, ...]]:
+def listar_entregas_activas(ruta_base_datos: str) -> List[Tuple[Any, ...]]:
     """
-    Obtiene los datos de los alumnos y sus entregas activas.
-    Utiliza Window Functions en SQL para contar colisiones de hash a nivel motor,
-    y aplica el MOTOR DE REGLAS DE SEGURIDAD agregando una lista de alertas.
+    Recupera el listado consolidado de exámenes activos, calculando las alertas
+    de seguridad en tiempo de ejecución.
+
+    Args:
+        ruta_base_datos (str): Ubicación física de la base SQLite.
+
+    Returns:
+        List[Tuple[Any, ...]]: Lista de tuplas con la información estructurada de entregas y auditoría.
+
+    Notes:
+        Se emplea `COUNT() OVER(PARTITION BY)` para delegar al motor SQL la detección de
+        colisiones criptográficas (plagios) en una única pasada, en lugar de calcularlo
+        vía diccionarios en Python.
     """
-    with conexion_db(ruta_db) as cursor:
-        cursor.execute(f"""
+    with conexion_db(ruta_base_datos) as cursor_activo:
+        cursor_activo.execute(f"""
             SELECT a.legajo, a.apellidos, a.nombres, e.timestamp, e.codigo_comprobante, 
                    a.ip_vinculada, e.ip_origen, 
                    COUNT(e.hash_archivo) OVER(PARTITION BY e.hash_archivo) as repeticiones_hash
@@ -235,60 +314,65 @@ def listar_entregas_activas(ruta_db: str) -> List[Tuple[Any, ...]]:
             WHERE e.es_activa = {ENTREGA_ACTIVA}
             ORDER BY e.timestamp DESC
         """)
-        filas_crudas = cursor.fetchall()
+        filas_extraidas = cursor_activo.fetchall()
 
-    filas_procesadas = []
+    filas_consolidadas = []
 
-    for fila in filas_crudas:
-        # Desempaquetamos sabiendo que SQLite ya hizo el conteo por nosotros
+    for fila_cruda in filas_extraidas:
         (
             legajo,
             apellidos,
             nombres,
-            timestamp,
+            marca_temporal,
             comprobante,
             ip_vinculada,
             ip_origen,
             repeticiones_hash,
-        ) = fila
-        alertas = []
+        ) = fila_cruda
 
-        # --- MOTOR DE REGLAS DE SEGURIDAD ---
+        alertas_detectadas: List[str] = []
+
         if ip_vinculada != ip_origen:
-            alertas.append(
+            alertas_detectadas.append(
                 f"• Posible suplantacion:\nSe registró con {ip_vinculada} pero ultima entrega desde {ip_origen}."
             )
 
         if repeticiones_hash > 1:
-            alertas.append(
+            alertas_detectadas.append(
                 f"• Posible plagio:\nEl archivo entregado tiene el mismo contenido exacto que la entrega de otro alumno."
             )
-        # ------------------------------------
 
-        filas_procesadas.append(
+        filas_consolidadas.append(
             (
                 legajo,
                 apellidos,
                 nombres,
-                timestamp,
+                marca_temporal,
                 comprobante,
                 ip_vinculada,
                 ip_origen,
-                alertas,
+                alertas_detectadas,
             )
         )
 
-    return filas_procesadas
+    return filas_consolidadas
 
 
-def exportar_asistencia_csv(ruta_db: str, ruta_csv: str) -> None:
+def exportar_asistencia_csv(ruta_base_datos: str, ruta_archivo_csv: str) -> None:
     """
-    Genera un archivo CSV con el historial completo de entregas (activas e inactivas).
-    Aplica validaciones de seguridad consolidadas y formatea los datos para Excel.
+    Vuelca el historial íntegro de la base de datos hacia un archivo de texto tabulado.
+
+    Args:
+        ruta_base_datos (str): Ubicación física de la base SQLite.
+        ruta_archivo_csv (str): Ruta absoluta de destino para el reporte.
+
+    Notes:
+        RATIONALE: Se utiliza la codificación `utf-8-sig` (con Byte Order Mark) para
+        forzar a Microsoft Excel en entornos Windows a renderizar correctamente los
+        caracteres acentuados sin necesidad de importar datos manualmente.
     """
-    with conexion_db(ruta_db) as cursor:
-        # Traemos TODAS las entregas (sin filtrar por es_activa)
-        cursor.execute("""
+    with conexion_db(ruta_base_datos) as cursor_activo:
+        cursor_activo.execute("""
             SELECT a.legajo, a.apellidos, a.nombres, e.timestamp, e.codigo_comprobante, 
                    e.nombre_archivo, e.es_activa, a.ip_vinculada, e.ip_origen, 
                    COUNT(e.hash_archivo) OVER(PARTITION BY e.hash_archivo) as repeticiones_hash
@@ -296,14 +380,14 @@ def exportar_asistencia_csv(ruta_db: str, ruta_csv: str) -> None:
             JOIN alumnos a ON e.legajo = a.legajo
             ORDER BY a.apellidos ASC, a.nombres ASC, e.timestamp ASC
         """)
-        filas_crudas = cursor.fetchall()
+        filas_historicas = cursor_activo.fetchall()
 
-    # Abrimos el archivo en modo escritura con utf-8-sig para que Excel en Windows lea bien los acentos
-    with open(ruta_csv, mode="w", newline="", encoding="utf-8-sig") as archivo_csv:
-        escritor = csv.writer(archivo_csv, delimiter=";")
+    with open(
+        ruta_archivo_csv, mode="w", newline="", encoding=CODIFICACION_CSV
+    ) as archivo_salida:
+        escritor_csv = csv.writer(archivo_salida, delimiter=DELIMITADOR_CSV)
 
-        # 1. Escribimos los encabezados
-        escritor.writerow(
+        escritor_csv.writerow(
             [
                 "Legajo/DNI",
                 "Apellidos",
@@ -316,48 +400,46 @@ def exportar_asistencia_csv(ruta_db: str, ruta_csv: str) -> None:
             ]
         )
 
-        # 2. Procesamos e insertamos fila por fila
-        for fila in filas_crudas:
+        for registro in filas_historicas:
             (
                 legajo,
                 apellidos,
                 nombres,
-                timestamp,
+                marca_temporal,
                 comprobante,
                 nombre_archivo,
-                es_activa,
+                estado_actividad,
                 ip_vinculada,
                 ip_origen,
                 repeticiones_hash,
-            ) = fila
+            ) = registro
 
-            hora_str = str(timestamp)[11:19]
+            hora_formateada = str(marca_temporal)[11:19]
+            tipo_entrega_etiqueta = (
+                "FINAL"
+                if estado_actividad == ENTREGA_ACTIVA
+                else "ANTERIOR (Re-entregada)"
+            )
+            # NOTA(refactor): esta logica se encuentra repetida en otra funcion, considerar un extract method
+            alertas_detectadas: List[str] = []
+            if ip_vinculada != ip_origen:
+                alertas_detectadas.append("IP Difiere")
+            if repeticiones_hash > 1:
+                alertas_detectadas.append("Clonación de Hash")
 
-            # Clasificamos el tipo de entrega
-            tipo_entrega = (
-                "FINAL" if es_activa == ENTREGA_ACTIVA else "ANTERIOR (Re-entregada)"
+            etiqueta_auditoria = (
+                " | ".join(alertas_detectadas) if alertas_detectadas else "OK"
             )
 
-            # Acumulamos las alertas
-            alertas = []
-            if ip_vinculada != ip_origen:
-                alertas.append("IP Difiere")
-            if repeticiones_hash > 1:
-                alertas.append("Clonación de Hash")
-
-            # Si hay más de una alerta, las unimos con " | ". Si la lista está vacía, ponemos "OK"
-            texto_auditoria = " | ".join(alertas) if alertas else "OK"
-
-            # Escribimos la fila procesada en el CSV
-            escritor.writerow(
+            escritor_csv.writerow(
                 [
                     legajo,
                     apellidos,
                     nombres,
-                    hora_str,
+                    hora_formateada,
                     comprobante,
                     nombre_archivo,
-                    tipo_entrega,
-                    texto_auditoria,
+                    tipo_entrega_etiqueta,
+                    etiqueta_auditoria,
                 ]
             )
