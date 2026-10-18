@@ -34,6 +34,7 @@ FUENTE_SUBTITULO: Tuple[str, int, str] = ("Roboto", 18, "bold")
 FUENTE_NORMAL_BOLD: Tuple[str, int, str] = ("Roboto", 14, "bold")
 FUENTE_NORMAL: Tuple[str, int] = ("Roboto", 12)
 FUENTE_MONOSPACE: Tuple[str, int] = ("Consolas", 12)
+FUENTE_NUMERO_GRANDE: Tuple[str, int, str] = ("Roboto", 36, "bold")  # <--- NUEVA FUENTE
 
 
 class InterfazServidor(ctk.CTk):
@@ -128,6 +129,44 @@ class InterfazServidor(ctk.CTk):
         self.lbl_titulo_dash.pack(pady=10)
         self.lbl_info_dash.pack(pady=5)
 
+        # --- NUEVO: PANEL DE ESTADÍSTICAS EN VIVO ---
+        self.frame_estadisticas = ctk.CTkFrame(
+            self.frame_dashboard, fg_color="transparent"
+        )
+        self.frame_estadisticas.pack(pady=10, fill="x")
+
+        self.frame_estadisticas.grid_columnconfigure(0, weight=1)
+        self.frame_estadisticas.grid_columnconfigure(1, weight=1)
+
+        # Caja de Estadísticas: Entregas
+        self.frame_entregas = ctk.CTkFrame(self.frame_estadisticas)
+        self.frame_entregas.grid(row=0, column=0, padx=10, sticky="e")
+        ctk.CTkLabel(
+            self.frame_entregas, text="Entregas Recibidas", font=FUENTE_NORMAL_BOLD
+        ).pack(pady=(5, 0), padx=20)
+        self.lbl_contador_entregas = ctk.CTkLabel(
+            self.frame_entregas,
+            text="0",
+            font=FUENTE_NUMERO_GRANDE,
+            text_color=COLOR_EXITO,
+        )
+        self.lbl_contador_entregas.pack(pady=(0, 5))
+
+        # Caja de Estadísticas: Alertas
+        self.frame_alertas = ctk.CTkFrame(self.frame_estadisticas)
+        self.frame_alertas.grid(row=0, column=1, padx=10, sticky="w")
+        ctk.CTkLabel(
+            self.frame_alertas, text="Alertas de Seguridad", font=FUENTE_NORMAL_BOLD
+        ).pack(pady=(5, 0), padx=20)
+        self.lbl_contador_alertas = ctk.CTkLabel(
+            self.frame_alertas,
+            text="0",
+            font=FUENTE_NUMERO_GRANDE,
+            text_color=COLOR_ALERTA_IP_OK,
+        )
+        self.lbl_contador_alertas.pack(pady=(0, 5))
+        # --------------------------------------------
+
         # Botón para abrir la carpeta contenedora en lugar de mostrar la ruta cruda
         self.btn_abrir_carpeta = ctk.CTkButton(
             self.frame_dashboard,
@@ -140,7 +179,7 @@ class InterfazServidor(ctk.CTk):
         )
         self.btn_abrir_carpeta.pack(pady=(0, 10))
 
-        # --- NUEVO: BARRA DE BÚSQUEDA SUPERIOR ---
+        # --- BARRA DE BÚSQUEDA SUPERIOR ---
         self.frame_controles = ctk.CTkFrame(
             self.frame_dashboard, fg_color="transparent"
         )
@@ -449,7 +488,8 @@ class InterfazServidor(ctk.CTk):
     def actualizar_grilla(self) -> None:
         """
         Bucle de actualización (Polling). Ahora solo consulta a la base de datos.
-        Si hay entregas nuevas, actualiza el caché en memoria y manda a redibujar.
+        Si hay entregas nuevas, actualiza el caché en memoria, actualiza los contadores,
+        y manda a redibujar la grilla.
         """
         if not self.ruta_db:
             return
@@ -458,10 +498,31 @@ class InterfazServidor(ctk.CTk):
             conteo_actual = persistencia.contar_entregas(self.ruta_db)
             if conteo_actual != self.ultimo_conteo:
                 self.ultimo_conteo = conteo_actual
+
                 # Cacheamos los registros frescos de la BD
                 self.filas_cacheadas = persistencia.listar_entregas_activas(
                     self.ruta_db
                 )
+
+                # --- NUEVO: ACTUALIZAR ESTADÍSTICAS EN VIVO ---
+                total_entregas = len(self.filas_cacheadas)
+                # Contamos cuántas filas tienen la IP origen distinta a la vinculada (índice 5 vs 6)
+                total_alertas = sum(
+                    1 for fila in self.filas_cacheadas if fila[5] != fila[6]
+                )
+
+                self.lbl_contador_entregas.configure(text=str(total_entregas))
+
+                if total_alertas > 0:
+                    self.lbl_contador_alertas.configure(
+                        text=str(total_alertas), text_color=COLOR_ALERTA_IP_DIFIERE
+                    )
+                else:
+                    self.lbl_contador_alertas.configure(
+                        text="0", text_color=COLOR_ALERTA_IP_OK
+                    )
+                # ----------------------------------------------
+
                 # Disparamos el motor de renderizado
                 self._refrescar_vista()
 
