@@ -17,24 +17,28 @@ from servidor_modulos import api, persistencia
 # -----------------------------------------------------------------------------
 # CONSTANTES DE CONFIGURACIÓN VISUAL Y LÍMITES
 # -----------------------------------------------------------------------------
-GEOMETRIA_VENTANA: str = "700x500"
+# Geometría ajustada para pantallas de 14" (ThinkPads de los laboratorios)
+GEOMETRIA_VENTANA: str = "1000x600"
+
+# Intervalo de actualización de la grilla en milisegundos (3 segundos)
 INTERVALO_ACTUALIZACION_MS: int = 3000
 
 # Paleta de Colores
 COLOR_EXITO: str = "green"
 COLOR_ERROR: str = "red"
-COLOR_ALERTA_IP_DIFIERE: str = "orange"
+COLOR_ALERTA_IP_DIFIERE: str = "#FF4500"
 COLOR_ALERTA_IP_OK: str = "gray"
 COLOR_BOTON_PELIGRO: str = "#8B0000"
 COLOR_BOTON_PELIGRO_HOVER: str = "#FF0000"
 
 # Fuentes Tipográficas
+# Roboto no esta por defecto en windows, cambiar por otra mas linda luego
 FUENTE_TITULO: Tuple[str, int, str] = ("Roboto", 24, "bold")
 FUENTE_SUBTITULO: Tuple[str, int, str] = ("Roboto", 18, "bold")
 FUENTE_NORMAL_BOLD: Tuple[str, int, str] = ("Roboto", 14, "bold")
 FUENTE_NORMAL: Tuple[str, int] = ("Roboto", 12)
 FUENTE_MONOSPACE: Tuple[str, int] = ("Consolas", 12)
-FUENTE_NUMERO_GRANDE: Tuple[str, int, str] = ("Roboto", 36, "bold")  # <--- NUEVA FUENTE
+FUENTE_NUMERO_GRANDE: Tuple[str, int, str] = ("Roboto", 36, "bold")
 
 
 class InterfazServidor(ctk.CTk):
@@ -58,10 +62,9 @@ class InterfazServidor(ctk.CTk):
         self.ultimo_conteo: int = -1
         self.intervalo_actualizacion: int = INTERVALO_ACTUALIZACION_MS
 
-        # --- NUEVOS ATRIBUTOS PARA BÚSQUEDA Y ORDENAMIENTO ---
+        # --- ATRIBUTOS PARA BÚSQUEDA Y ORDENAMIENTO ---
         self.filas_cacheadas: list = []
         self.texto_busqueda = ctk.StringVar()
-        # Escuchamos cada vez que el docente tipea una letra para refrescar en vivo
         self.texto_busqueda.trace_add("write", lambda *args: self._refrescar_vista())
         self.columna_orden: int = 3  # Por defecto ordena por la Hora (índice 3)
         self.orden_descendente: bool = True
@@ -129,7 +132,7 @@ class InterfazServidor(ctk.CTk):
         self.lbl_titulo_dash.pack(pady=10)
         self.lbl_info_dash.pack(pady=5)
 
-        # --- NUEVO: PANEL DE ESTADÍSTICAS EN VIVO ---
+        # --- PANEL DE ESTADÍSTICAS EN VIVO ---
         self.frame_estadisticas = ctk.CTkFrame(
             self.frame_dashboard, fg_color="transparent"
         )
@@ -167,7 +170,7 @@ class InterfazServidor(ctk.CTk):
         self.lbl_contador_alertas.pack(pady=(0, 5))
         # --------------------------------------------
 
-        # Botón para abrir la carpeta contenedora en lugar de mostrar la ruta cruda
+        # Botón para abrir la carpeta contenedora
         self.btn_abrir_carpeta = ctk.CTkButton(
             self.frame_dashboard,
             text="📁 Abrir Carpeta de Entregas",
@@ -375,7 +378,6 @@ class InterfazServidor(ctk.CTk):
         Desempaqueta una tupla de base de datos y dibuja los labels y botones
         correspondientes en una fila específica de la grilla.
         """
-        # IMPORTANTE: Ahora la tupla trae 'alertas' pre-calculadas en el índice 7
         (
             legajo,
             apellidos,
@@ -466,9 +468,11 @@ class InterfazServidor(ctk.CTk):
         # 3. Ordenamiento Dinámico
         def clave_ordenamiento(f):
             if self.columna_orden == 5:
-                # Lógica especial para la Alerta IP: Ordena poniendo los "Difiere" arriba
-                ip_difiere = f[5] != f[6]
-                return ip_difiere
+                # 3. CORRECCIÓN DEL ORDENAMIENTO POR ALERTAS:
+                # Si la lista de alertas (índice 7) tiene al menos un elemento, retorna True
+                # (Al ordenar descendentemente, los True quedan arriba)
+                tiene_alertas = len(f[7]) > 0
+                return tiene_alertas
             # Para el resto, ordena como string estándar
             return str(f[self.columna_orden]).lower() if f[self.columna_orden] else ""
 
@@ -500,9 +504,8 @@ class InterfazServidor(ctk.CTk):
                     self.ruta_db
                 )
 
-                # --- NUEVO: ACTUALIZAR ESTADÍSTICAS EN VIVO ---
+                # --- ACTUALIZAR ESTADÍSTICAS EN VIVO ---
                 total_entregas = len(self.filas_cacheadas)
-                # Contamos cuántas filas tienen la IP origen distinta a la vinculada (índice 5 vs 6)
                 total_alertas = sum(
                     1 for fila in self.filas_cacheadas if len(fila[7]) > 0
                 )
@@ -517,7 +520,6 @@ class InterfazServidor(ctk.CTk):
                     self.lbl_contador_alertas.configure(
                         text="0", text_color=COLOR_ALERTA_IP_OK
                     )
-                # ----------------------------------------------
 
                 # Disparamos el motor de renderizado
                 self._refrescar_vista()
