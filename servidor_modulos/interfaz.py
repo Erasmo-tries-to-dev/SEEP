@@ -62,10 +62,16 @@ class InterfazServidor(ctk.CTk):
         self.ultimo_conteo: int = -1
         self.intervalo_actualizacion: int = INTERVALO_ACTUALIZACION_MS
 
+        # --- NUEVO: Atributo para el Debouncing de la búsqueda ---
+        self._temporizador_busqueda: Optional[str] = None
+
         # --- ATRIBUTOS PARA BÚSQUEDA Y ORDENAMIENTO ---
         self.filas_cacheadas: list = []
         self.texto_busqueda = ctk.StringVar()
-        self.texto_busqueda.trace_add("write", lambda *args: self._refrescar_vista())
+
+        # En lugar de llamar directo al refresco, programamos la búsqueda con retraso
+        self.texto_busqueda.trace_add("write", lambda *args: self._programar_busqueda())
+
         self.columna_orden: int = 3  # Por defecto ordena por la Hora (índice 3)
         self.orden_descendente: bool = True
 
@@ -182,7 +188,7 @@ class InterfazServidor(ctk.CTk):
         )
         self.btn_abrir_carpeta.pack(pady=(0, 10))
 
-        # --- NUEVO: Botón para exportar a CSV ---
+        # --- Botón para exportar a CSV ---
         self.btn_exportar_csv = ctk.CTkButton(
             self.frame_dashboard,
             text="📊 Exportar a CSV",
@@ -210,11 +216,32 @@ class InterfazServidor(ctk.CTk):
         self.entrada_busqueda.pack(side="left")
         # ----------------------------------------
 
+        # --- NUEVO: MARCO FIJO PARA ENCABEZADOS ---
+        # Separamos los encabezados del área de scroll para que siempre estén visibles
+        self.frame_encabezados = ctk.CTkFrame(self.frame_dashboard)
+        self.frame_encabezados.pack(fill="x", padx=20, pady=(10, 0))
+        # ------------------------------------------
+
         self.frame_lista = ctk.CTkScrollableFrame(
             self.frame_dashboard,
-            label_text="Entregas Recibidas (Actualización en tiempo real)",
         )
-        self.frame_lista.pack(pady=10, padx=20, fill="both", expand=True)
+        # Cambiamos pady para que quede pegado a los encabezados
+        self.frame_lista.pack(pady=(0, 10), padx=20, fill="both", expand=True)
+
+        # Dibujamos los encabezados estáticos una sola vez al construir el panel
+        self.dibujar_encabezados()
+
+    def _programar_busqueda(self) -> None:
+        """
+        Técnica de Debouncing. Evita que la interfaz se congele al escribir rápido.
+        Espera 300ms después de la última pulsación de tecla para redibujar la grilla.
+        """
+        if self._temporizador_busqueda is not None:
+            # Si el usuario tecleó otra letra, cancelamos el renderizado anterior
+            self.after_cancel(self._temporizador_busqueda)
+
+        # Programamos un nuevo renderizado para dentro de 300ms
+        self._temporizador_busqueda = self.after(300, self._refrescar_vista)
 
     def abrir_carpeta_entregas(self) -> None:
         """Abre la carpeta de entregas en el explorador de archivos del sistema operativo."""
@@ -234,7 +261,6 @@ class InterfazServidor(ctk.CTk):
             logging.error(f"No se pudo abrir la carpeta: {e}")
             messagebox.showerror("Error", f"No se pudo abrir la carpeta de destino.")
 
-    # --- NUEVA FUNCIÓN: Exportar a CSV ---
     def exportar_csv_gui(self) -> None:
         """Invoca al backend para generar el reporte en CSV y notifica al usuario."""
         if not self.ruta_entregas or not self.ruta_db:
@@ -250,8 +276,6 @@ class InterfazServidor(ctk.CTk):
         except Exception as e:
             logging.error(f"Error al exportar CSV: {e}")
             messagebox.showerror("Error", f"No se pudo generar el CSV:\n{e}")
-
-    # -------------------------------------
 
     def iniciar_sistema(self) -> None:
         """
@@ -364,45 +388,54 @@ class InterfazServidor(ctk.CTk):
             # Si cambia de columna, ordena ascendente por defecto
             self.columna_orden = col_index
             self.orden_descendente = False
+
+        # Re-dibujamos los títulos para que la flechita cambie al instante
+        self.dibujar_encabezados()
         self._refrescar_vista()
 
     def dibujar_encabezados(self) -> None:
-        """Renderiza la primera fila de la grilla con los títulos interactivos."""
-        # Tupla: (Texto a mostrar, índice real en la tupla de Base de Datos)
+        """Renderiza los títulos interactivos en su propio marco fijo."""
+
+        # Primero limpiamos el marco de encabezados por si las flechitas cambiaron
+        for widget in self.frame_encabezados.winfo_children():
+            widget.destroy()
+
+        # Tupla: (Texto a mostrar, índice real en BD, Ancho fijo de la columna)
         encabezados = [
-            ("Legajo/DNI", 0),
-            ("Apellidos", 1),
-            ("Nombres", 2),
-            ("Hora", 3),
-            ("Comprobante", 4),
-            ("Estado", 5),
-            ("Acciones", -1),  # -1 significa que no se puede ordenar por esta columna
+            ("Legajo/DNI", 0, 100),
+            ("Apellidos", 1, 150),
+            ("Nombres", 2, 150),
+            ("Hora", 3, 80),
+            ("Comprobante", 4, 120),
+            ("Estado", 5, 60),
+            ("Acciones", -1, 100),
         ]
 
-        for col, (texto, idx_bd) in enumerate(encabezados):
+        for col, (texto, idx_bd, ancho) in enumerate(encabezados):
             if idx_bd != -1:
-                # Calculamos si lleva flechita de ordenamiento
                 flecha = ""
                 if self.columna_orden == idx_bd:
-                    # Invertimos las flechas para que coincida con la lectura natural
                     flecha = " ▲" if self.orden_descendente else " ▼"
 
-                # Usamos botones transparentes en lugar de Labels para que sean clickeables
                 btn = ctk.CTkButton(
-                    self.frame_lista,
+                    self.frame_encabezados,
                     text=texto + flecha,
                     font=FUENTE_NORMAL_BOLD,
                     fg_color="transparent",
                     text_color=("black", "white"),
                     hover_color=("gray80", "gray30"),
                     anchor="w",
-                    width=20,
+                    width=ancho,  # <-- Sincronizamos el ancho
                     command=lambda i=idx_bd: self._cambiar_orden(i),
                 )
                 btn.grid(row=0, column=col, padx=10, pady=5, sticky="w")
             else:
                 ctk.CTkLabel(
-                    self.frame_lista, text=texto, font=FUENTE_NORMAL_BOLD
+                    self.frame_encabezados,
+                    text=texto,
+                    font=FUENTE_NORMAL_BOLD,
+                    width=ancho,  # <-- Sincronizamos el ancho
+                    anchor="w",
                 ).grid(row=0, column=col, padx=10, pady=5, sticky="w")
 
     def dibujar_fila(self, indice: int, fila: Tuple[Any, ...]) -> None:
@@ -423,13 +456,20 @@ class InterfazServidor(ctk.CTk):
 
         hora_str = str(timestamp)[11:19]
 
+        # Le asignamos los mismos anchos exactos que definimos en los encabezados
         celdas = [
-            (ctk.CTkLabel(self.frame_lista, text=legajo), 0),
-            (ctk.CTkLabel(self.frame_lista, text=apellidos), 1),
-            (ctk.CTkLabel(self.frame_lista, text=nombres), 2),
-            (ctk.CTkLabel(self.frame_lista, text=hora_str), 3),
+            (ctk.CTkLabel(self.frame_lista, text=legajo, width=100, anchor="w"), 0),
+            (ctk.CTkLabel(self.frame_lista, text=apellidos, width=150, anchor="w"), 1),
+            (ctk.CTkLabel(self.frame_lista, text=nombres, width=150, anchor="w"), 2),
+            (ctk.CTkLabel(self.frame_lista, text=hora_str, width=80, anchor="w"), 3),
             (
-                ctk.CTkLabel(self.frame_lista, text=comprobante, font=FUENTE_MONOSPACE),
+                ctk.CTkLabel(
+                    self.frame_lista,
+                    text=comprobante,
+                    font=FUENTE_MONOSPACE,
+                    width=120,
+                    anchor="w",
+                ),
                 4,
             ),
         ]
@@ -437,12 +477,11 @@ class InterfazServidor(ctk.CTk):
         for widget, col in celdas:
             widget.grid(row=indice, column=col, padx=10, pady=2, sticky="w")
 
-        # Como la lista 'alertas' ya la calculó el backend, la UI solo decide si pinta verde o naranja
         if alertas:
             btn_estado = ctk.CTkButton(
                 self.frame_lista,
                 text="⚠️",
-                width=40,
+                width=60,  # <-- Ancho fijo de la columna Estado
                 fg_color="transparent",
                 text_color=COLOR_ALERTA_IP_DIFIERE,
                 font=FUENTE_NORMAL_BOLD,
@@ -455,18 +494,18 @@ class InterfazServidor(ctk.CTk):
             btn_estado = ctk.CTkButton(
                 self.frame_lista,
                 text="✅",
-                width=40,
+                width=60,  # <-- Ancho fijo de la columna Estado
                 fg_color="transparent",
                 text_color=COLOR_EXITO,
                 font=FUENTE_NORMAL_BOLD,
                 hover=False,
             )
-        btn_estado.grid(row=indice, column=5, padx=10, pady=2)
+        btn_estado.grid(row=indice, column=5, padx=10, pady=2, sticky="w")
 
         ctk.CTkButton(
             self.frame_lista,
             text="Habilitar",
-            width=80,
+            width=100,  # <-- Ancho fijo de la columna Acciones
             fg_color=COLOR_BOTON_PELIGRO,
             hover_color=COLOR_BOTON_PELIGRO_HOVER,
             command=lambda l=legajo, n=nombres, a=apellidos: self.habilitar_reentrega_gui(
@@ -477,13 +516,11 @@ class InterfazServidor(ctk.CTk):
     def _refrescar_vista(self) -> None:
         """
         Motor de renderizado: Filtra, ordena y dibuja la grilla desde la memoria RAM.
-        Se ejecuta al recibir exámenes, al tipear en el buscador, o al ordenar columnas.
+        Ya no dibuja los encabezados (ahora son estáticos), solo limpia las filas.
         """
-        # 1. Limpiamos la grilla visual actual
+        # 1. Limpiamos las filas de alumnos
         for widget in self.frame_lista.winfo_children():
             widget.destroy()
-
-        self.dibujar_encabezados()
 
         # 2. Filtrado en vivo por texto (ignorando mayúsculas/minúsculas)
         query = self.texto_busqueda.get().lower().strip()
