@@ -182,6 +182,19 @@ class InterfazServidor(ctk.CTk):
         )
         self.btn_abrir_carpeta.pack(pady=(0, 10))
 
+        # --- NUEVO: Botón para exportar a CSV ---
+        self.btn_exportar_csv = ctk.CTkButton(
+            self.frame_dashboard,
+            text="📊 Exportar a CSV",
+            font=FUENTE_NORMAL_BOLD,
+            fg_color="transparent",
+            border_width=1,
+            text_color=("black", "white"),
+            command=self.exportar_csv_gui,
+        )
+        self.btn_exportar_csv.pack(pady=(0, 10))
+        # ----------------------------------------
+
         # --- BARRA DE BÚSQUEDA SUPERIOR ---
         self.frame_controles = ctk.CTkFrame(
             self.frame_dashboard, fg_color="transparent"
@@ -220,6 +233,25 @@ class InterfazServidor(ctk.CTk):
         except Exception as e:
             logging.error(f"No se pudo abrir la carpeta: {e}")
             messagebox.showerror("Error", f"No se pudo abrir la carpeta de destino.")
+
+    # --- NUEVA FUNCIÓN: Exportar a CSV ---
+    def exportar_csv_gui(self) -> None:
+        """Invoca al backend para generar el reporte en CSV y notifica al usuario."""
+        if not self.ruta_entregas or not self.ruta_db:
+            messagebox.showerror("Error", "El servidor no está iniciado.")
+            return
+
+        try:
+            ruta_csv = os.path.join(self.ruta_entregas, "asistencia_parcial.csv")
+            persistencia.exportar_asistencia_csv(self.ruta_db, ruta_csv)
+            messagebox.showinfo(
+                "Éxito", f"Reporte exportado correctamente en:\n{ruta_csv}"
+            )
+        except Exception as e:
+            logging.error(f"Error al exportar CSV: {e}")
+            messagebox.showerror("Error", f"No se pudo generar el CSV:\n{e}")
+
+    # -------------------------------------
 
     def iniciar_sistema(self) -> None:
         """

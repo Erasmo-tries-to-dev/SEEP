@@ -6,6 +6,7 @@ Garantiza transacciones atómicas (commit/rollback) y el cierre seguro de conexi
 
 import os
 import sqlite3
+import csv
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Iterator, List, Optional, Tuple
@@ -278,3 +279,85 @@ def listar_entregas_activas(ruta_db: str) -> List[Tuple[Any, ...]]:
         )
 
     return filas_procesadas
+
+
+def exportar_asistencia_csv(ruta_db: str, ruta_csv: str) -> None:
+    """
+    Genera un archivo CSV con el historial completo de entregas (activas e inactivas).
+    Aplica validaciones de seguridad consolidadas y formatea los datos para Excel.
+    """
+    with conexion_db(ruta_db) as cursor:
+        # Traemos TODAS las entregas (sin filtrar por es_activa)
+        cursor.execute("""
+            SELECT a.legajo, a.apellidos, a.nombres, e.timestamp, e.codigo_comprobante, 
+                   e.nombre_archivo, e.es_activa, a.ip_vinculada, e.ip_origen, 
+                   COUNT(e.hash_archivo) OVER(PARTITION BY e.hash_archivo) as repeticiones_hash
+            FROM entregas e
+            JOIN alumnos a ON e.legajo = a.legajo
+            ORDER BY a.apellidos ASC, a.nombres ASC, e.timestamp ASC
+        """)
+        filas_crudas = cursor.fetchall()
+
+    # Abrimos el archivo en modo escritura con utf-8-sig para que Excel en Windows lea bien los acentos
+    with open(ruta_csv, mode="w", newline="", encoding="utf-8-sig") as archivo_csv:
+        escritor = csv.writer(archivo_csv, delimiter=";")
+
+        # 1. Escribimos los encabezados
+        escritor.writerow(
+            [
+                "Legajo/DNI",
+                "Apellidos",
+                "Nombres",
+                "Hora",
+                "Comprobante",
+                "Nombre del Archivo",
+                "Tipo de Entrega",
+                "Auditoría / Alertas",
+            ]
+        )
+
+        # 2. Procesamos e insertamos fila por fila
+        for fila in filas_crudas:
+            (
+                legajo,
+                apellidos,
+                nombres,
+                timestamp,
+                comprobante,
+                nombre_archivo,
+                es_activa,
+                ip_vinculada,
+                ip_origen,
+                repeticiones_hash,
+            ) = fila
+
+            hora_str = str(timestamp)[11:19]
+
+            # Clasificamos el tipo de entrega
+            tipo_entrega = (
+                "FINAL" if es_activa == ENTREGA_ACTIVA else "ANTERIOR (Re-entregada)"
+            )
+
+            # Acumulamos las alertas
+            alertas = []
+            if ip_vinculada != ip_origen:
+                alertas.append("IP Difiere")
+            if repeticiones_hash > 1:
+                alertas.append("Clonación de Hash")
+
+            # Si hay más de una alerta, las unimos con " | ". Si la lista está vacía, ponemos "OK"
+            texto_auditoria = " | ".join(alertas) if alertas else "OK"
+
+            # Escribimos la fila procesada en el CSV
+            escritor.writerow(
+                [
+                    legajo,
+                    apellidos,
+                    nombres,
+                    hora_str,
+                    comprobante,
+                    nombre_archivo,
+                    tipo_entrega,
+                    texto_auditoria,
+                ]
+            )
