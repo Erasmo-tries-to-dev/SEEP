@@ -85,7 +85,8 @@ class AppAlumno(ctk.CTk):
         logging.info("Iniciando aplicación Cliente Alumno SEEP.")
 
         self.title("SEEP - Taller de Programación")
-        self.geometry("500x600")
+        # 1. Reducimos la altura base para que entre cómoda en 14"
+        self.geometry("450x550")
         self.resizable(False, True)
 
         self.ruta_archivo = None
@@ -100,10 +101,11 @@ class AppAlumno(ctk.CTk):
         self.lbl_titulo = ctk.CTkLabel(
             self, text="Entrega de Parcial", font=("Roboto", 24, "bold")
         )
-        self.lbl_titulo.pack(pady=(20, 10))
+        self.lbl_titulo.pack(pady=(15, 5))
 
-        self.frame_form = ctk.CTkFrame(self)
-        self.frame_form.pack(pady=10, padx=20, fill="both")
+        # 2. Cambiamos CTkFrame por CTkScrollableFrame y le agregamos expand=True
+        self.frame_form = ctk.CTkScrollableFrame(self)
+        self.frame_form.pack(pady=5, padx=20, fill="both", expand=True)
 
         self._crear_campos_formulario()
 
@@ -115,7 +117,8 @@ class AppAlumno(ctk.CTk):
             values=MODULOS,
             command=self.al_cambiar_modulo,
         )
-        self.combo_modulo.pack(pady=(5, 15), padx=20, fill="x")
+        # 3. Compactamos los paddings (pady)
+        self.combo_modulo.pack(pady=(2, 10), padx=20, fill="x")
 
         self.btn_archivo = ctk.CTkButton(
             self.frame_form,
@@ -124,12 +127,12 @@ class AppAlumno(ctk.CTk):
             hover_color="darkgray",
             command=self.seleccionar_archivo,
         )
-        self.btn_archivo.pack(pady=(10, 5), padx=20)
+        self.btn_archivo.pack(pady=(5, 5), padx=20)
 
         self.lbl_archivo_seleccionado = ctk.CTkLabel(
             self.frame_form, text="Ningún archivo seleccionado", text_color=COLOR_NEUTRO
         )
-        self.lbl_archivo_seleccionado.pack(pady=(0, 15), padx=20)
+        self.lbl_archivo_seleccionado.pack(pady=(0, 10), padx=20)
 
         self.lbl_estado = ctk.CTkLabel(self, text="", font=("Roboto", 14, "bold"))
         self.lbl_estado.pack(pady=(5, 5))
@@ -141,12 +144,13 @@ class AppAlumno(ctk.CTk):
             height=40,
             command=self.iniciar_entrega,
         )
-        self.btn_enviar.pack(pady=(5, 20), padx=40, fill="x")
+        self.btn_enviar.pack(pady=(5, 15), padx=40, fill="x")
 
     def _crear_campos_formulario(self):
         """Crea las etiquetas y campos de texto definidos en CAMPOS_FORMULARIO."""
         for indice, campo in enumerate(CAMPOS_FORMULARIO):
-            pad_superior = 15 if indice == 0 else 0
+            # Compactamos el margen superior del primer elemento
+            pad_superior = 5 if indice == 0 else 0
 
             ctk.CTkLabel(self.frame_form, text=campo["label"], anchor="w").pack(
                 pady=(pad_superior, 0), padx=20, fill="x"
@@ -156,7 +160,8 @@ class AppAlumno(ctk.CTk):
                 placeholder_text=campo["placeholder"],
                 show="*" if campo["es_password"] else "",
             )
-            entrada.pack(pady=(5, 10), padx=20, fill="x")
+            # Reducimos los márgenes entre input y siguiente label
+            entrada.pack(pady=(2, 8), padx=20, fill="x")
             self.entradas[campo["id"]] = entrada
 
     def procesar_cola(self):
