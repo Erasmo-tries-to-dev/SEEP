@@ -44,10 +44,8 @@ def buscar_servidor_en_red(timeout_segundos: int = 5) -> Optional[str]:
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    # Permitimos reutilizar el puerto por si varios clientes corren en la misma máquina (útil para pruebas)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-    # Nos ponemos a escuchar en todas las interfaces, en el puerto acordado
     sock.bind(("0.0.0.0", PUERTO_BEACON))
     sock.settimeout(timeout_segundos)
 
