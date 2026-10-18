@@ -375,21 +375,19 @@ class InterfazServidor(ctk.CTk):
         Desempaqueta una tupla de base de datos y dibuja los labels y botones
         correspondientes en una fila específica de la grilla.
         """
-        legajo, apellidos, nombres, timestamp, comprobante, ip_vinculada, ip_origen = (
-            fila
-        )
+        # IMPORTANTE: Ahora la tupla trae 'alertas' pre-calculadas en el índice 7
+        (
+            legajo,
+            apellidos,
+            nombres,
+            timestamp,
+            comprobante,
+            ip_vinculada,
+            ip_origen,
+            alertas,
+        ) = fila
 
         hora_str = str(timestamp)[11:19]
-
-        # --- MOTOR DE REGLAS DE SEGURIDAD ---
-        alertas = []
-        if ip_vinculada != ip_origen:
-            alertas.append(
-                f"• IP de origen difiere:\nSe registró con {ip_vinculada} pero entregó desde {ip_origen}."
-            )
-
-        # (Si en el futuro agregás validación de Hostname, se suma acá con un if)
-        # ------------------------------------
 
         celdas = [
             (ctk.CTkLabel(self.frame_lista, text=legajo), 0),
@@ -400,14 +398,13 @@ class InterfazServidor(ctk.CTk):
                 ctk.CTkLabel(self.frame_lista, text=comprobante, font=FUENTE_MONOSPACE),
                 4,
             ),
-            # La columna 5 ahora es el Botón de Estado, lo dibujamos aparte
         ]
 
         for widget, col in celdas:
             widget.grid(row=indice, column=col, padx=10, pady=2, sticky="w")
 
+        # Como la lista 'alertas' ya la calculó el backend, la UI solo decide si pinta verde o naranja
         if alertas:
-            # Tiene alertas: Mostramos icono ⚠️, color naranja y asignamos el comando
             btn_estado = ctk.CTkButton(
                 self.frame_lista,
                 text="⚠️",
@@ -432,7 +429,6 @@ class InterfazServidor(ctk.CTk):
             )
         btn_estado.grid(row=indice, column=5, padx=10, pady=2)
 
-        # --- DIBUJAR BOTÓN HABILITAR (Columna 6) ---
         ctk.CTkButton(
             self.frame_lista,
             text="Habilitar",
@@ -508,7 +504,7 @@ class InterfazServidor(ctk.CTk):
                 total_entregas = len(self.filas_cacheadas)
                 # Contamos cuántas filas tienen la IP origen distinta a la vinculada (índice 5 vs 6)
                 total_alertas = sum(
-                    1 for fila in self.filas_cacheadas if fila[5] != fila[6]
+                    1 for fila in self.filas_cacheadas if len(fila[7]) > 0
                 )
 
                 self.lbl_contador_entregas.configure(text=str(total_entregas))

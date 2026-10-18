@@ -141,7 +141,7 @@ def registrar_entrega_exitosa(
     legajo: str,
     apellidos: str,
     nombres: str,
-    ip_vinculada: str,
+    ip_peticion_actual: str,  # <--- CAMBIADO para mayor claridad semántica
     hostname: str,
     timestamp: datetime,
     nombre_archivo: str,
@@ -161,7 +161,14 @@ def registrar_entrega_exitosa(
                 INSERT INTO alumnos (legajo, apellidos, nombres, ip_vinculada, hostname_vinculado, reentrega_habilitada)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (legajo, apellidos, nombres, ip_vinculada, hostname, PERMISO_DENEGADO),
+                (
+                    legajo,
+                    apellidos,
+                    nombres,
+                    ip_peticion_actual,
+                    hostname,
+                    PERMISO_DENEGADO,
+                ),
             )
         else:
             # Si ya existía, le consumimos el permiso para que no envíe infinitamente
@@ -176,7 +183,7 @@ def registrar_entrega_exitosa(
             (ENTREGA_INACTIVA, legajo),
         )
 
-        # Insertar la nueva entrega (forzando str() en el timestamp por compatibilidad SQLite)
+        # Insertar la nueva entrega
         cursor.execute(
             """
             INSERT INTO entregas (legajo, timestamp, nombre_archivo, hash_archivo, codigo_comprobante, ip_origen, es_activa)
@@ -188,7 +195,7 @@ def registrar_entrega_exitosa(
                 nombre_archivo,
                 hash_archivo,
                 codigo_comprobante,
-                ip_vinculada,
+                ip_peticion_actual,  # <--- La entrega siempre guarda la IP desde la cual se envió el archivo
                 ENTREGA_ACTIVA,
             ),
         )
@@ -213,8 +220,9 @@ def contar_entregas(ruta_db: str) -> int:
 
 def listar_entregas_activas(ruta_db: str) -> List[Tuple[Any, ...]]:
     """
-    Obtiene los datos cruzados (JOIN) entre alumnos y entregas activas
-    para poblar la grilla del panel docente, ordenados por los más recientes.
+    Obtiene los datos de los alumnos y sus entregas activas.
+    Aplica el MOTOR DE REGLAS DE SEGURIDAD, agregando una lista de alertas a cada tupla
+    si se detectan anomalías, liberando a la interfaz gráfica de esa responsabilidad.
     """
     with conexion_db(ruta_db) as cursor:
         cursor.execute(f"""
@@ -224,4 +232,32 @@ def listar_entregas_activas(ruta_db: str) -> List[Tuple[Any, ...]]:
             WHERE e.es_activa = {ENTREGA_ACTIVA}
             ORDER BY e.timestamp DESC
         """)
-        return cursor.fetchall()
+        filas_crudas = cursor.fetchall()
+
+    filas_procesadas = []
+
+    for fila in filas_crudas:
+        legajo, apellidos, nombres, timestamp, comprobante, ip_vinculada, ip_origen = (
+            fila
+        )
+        alertas = []
+
+        # --- MOTOR DE REGLAS DE SEGURIDAD ---
+        if ip_vinculada != ip_origen:
+            alertas.append(
+                f"• IP de origen difiere:\nSe registró con {ip_vinculada} pero entregó desde {ip_origen}."
+            )
+        filas_procesadas.append(
+            (
+                legajo,
+                apellidos,
+                nombres,
+                timestamp,
+                comprobante,
+                ip_vinculada,
+                ip_origen,
+                alertas,
+            )
+        )
+
+    return filas_procesadas
