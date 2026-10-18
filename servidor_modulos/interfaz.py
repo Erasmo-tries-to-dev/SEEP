@@ -124,13 +124,21 @@ class InterfazServidor(ctk.CTk):
         self.lbl_info_dash = ctk.CTkLabel(
             self.frame_dashboard, text="", font=FUENTE_SUBTITULO
         )
-        self.lbl_ruta_dash = ctk.CTkLabel(
-            self.frame_dashboard, text="", font=FUENTE_NORMAL
-        )
 
         self.lbl_titulo_dash.pack(pady=10)
         self.lbl_info_dash.pack(pady=5)
-        self.lbl_ruta_dash.pack(pady=(0, 10))
+
+        # Botón para abrir la carpeta contenedora en lugar de mostrar la ruta cruda
+        self.btn_abrir_carpeta = ctk.CTkButton(
+            self.frame_dashboard,
+            text="📁 Abrir Carpeta de Entregas",
+            font=FUENTE_NORMAL_BOLD,
+            fg_color="transparent",
+            border_width=1,
+            text_color=("black", "white"),
+            command=self.abrir_carpeta_entregas,
+        )
+        self.btn_abrir_carpeta.pack(pady=(0, 10))
 
         # --- NUEVO: BARRA DE BÚSQUEDA SUPERIOR ---
         self.frame_controles = ctk.CTkFrame(
@@ -152,6 +160,24 @@ class InterfazServidor(ctk.CTk):
             label_text="Entregas Recibidas (Actualización en tiempo real)",
         )
         self.frame_lista.pack(pady=10, padx=20, fill="both", expand=True)
+
+    def abrir_carpeta_entregas(self) -> None:
+        """Abre la carpeta de entregas en el explorador de archivos del sistema operativo."""
+        if not self.ruta_entregas or not os.path.exists(self.ruta_entregas):
+            messagebox.showerror("Error", "La carpeta no existe o no se ha creado aún.")
+            return
+
+        try:
+            if os.name == "nt":  # Windows
+                os.startfile(self.ruta_entregas)
+            else:  # macOS / Linux
+                import subprocess, sys
+
+                comando = "open" if sys.platform == "darwin" else "xdg-open"
+                subprocess.run([comando, self.ruta_entregas])
+        except Exception as e:
+            logging.error(f"No se pudo abrir la carpeta: {e}")
+            messagebox.showerror("Error", f"No se pudo abrir la carpeta de destino.")
 
     def iniciar_sistema(self) -> None:
         """
@@ -189,7 +215,7 @@ class InterfazServidor(ctk.CTk):
         self.frame_dashboard.pack(pady=20, padx=20, fill="both", expand=True)
 
         self.lbl_info_dash.configure(text=f"IP: {ip_local}   |   PIN: {pin_sesion}")
-        self.lbl_ruta_dash.configure(text=f"Guardando en: {ruta_carpeta}")
+        self.ruta_entregas = ruta_carpeta
 
         self.actualizar_grilla()
 
