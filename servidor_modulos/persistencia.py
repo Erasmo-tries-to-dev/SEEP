@@ -221,12 +221,14 @@ def contar_entregas(ruta_db: str) -> int:
 def listar_entregas_activas(ruta_db: str) -> List[Tuple[Any, ...]]:
     """
     Obtiene los datos de los alumnos y sus entregas activas.
-    Aplica el MOTOR DE REGLAS DE SEGURIDAD, agregando una lista de alertas a cada tupla
-    si se detectan anomalías, liberando a la interfaz gráfica de esa responsabilidad.
+    Utiliza Window Functions en SQL para contar colisiones de hash a nivel motor,
+    y aplica el MOTOR DE REGLAS DE SEGURIDAD agregando una lista de alertas.
     """
     with conexion_db(ruta_db) as cursor:
         cursor.execute(f"""
-            SELECT a.legajo, a.apellidos, a.nombres, e.timestamp, e.codigo_comprobante, a.ip_vinculada, e.ip_origen
+            SELECT a.legajo, a.apellidos, a.nombres, e.timestamp, e.codigo_comprobante, 
+                   a.ip_vinculada, e.ip_origen, 
+                   COUNT(e.hash_archivo) OVER(PARTITION BY e.hash_archivo) as repeticiones_hash
             FROM entregas e
             JOIN alumnos a ON e.legajo = a.legajo
             WHERE e.es_activa = {ENTREGA_ACTIVA}
@@ -237,16 +239,31 @@ def listar_entregas_activas(ruta_db: str) -> List[Tuple[Any, ...]]:
     filas_procesadas = []
 
     for fila in filas_crudas:
-        legajo, apellidos, nombres, timestamp, comprobante, ip_vinculada, ip_origen = (
-            fila
-        )
+        # Desempaquetamos sabiendo que SQLite ya hizo el conteo por nosotros
+        (
+            legajo,
+            apellidos,
+            nombres,
+            timestamp,
+            comprobante,
+            ip_vinculada,
+            ip_origen,
+            repeticiones_hash,
+        ) = fila
         alertas = []
 
         # --- MOTOR DE REGLAS DE SEGURIDAD ---
         if ip_vinculada != ip_origen:
             alertas.append(
-                f"• IP de origen difiere:\nSe registró con {ip_vinculada} pero entregó desde {ip_origen}."
+                f"• Posible suplantacion:\nSe registró con {ip_vinculada} pero ultima entrega desde {ip_origen}."
             )
+
+        if repeticiones_hash > 1:
+            alertas.append(
+                f"• Posible plagio:\nEl archivo entregado tiene el mismo contenido exacto que la entrega de otro alumno."
+            )
+        # ------------------------------------
+
         filas_procesadas.append(
             (
                 legajo,

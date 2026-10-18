@@ -49,6 +49,9 @@ def generar_mock_data(cantidad=50):
         hours=2
     )  # Los parciales arrancaron hace 2 horas
 
+    # Lista para guardar los hashes que vamos creando y poder simular copias
+    hashes_existentes = []
+
     for _ in range(cantidad):
         nombre = random.choice(NOMBRES)
         apellido = random.choice(APELLIDOS)
@@ -68,8 +71,18 @@ def generar_mock_data(cantidad=50):
         minutos_random = random.randint(1, 120)
         timestamp = tiempo_base + timedelta(minutes=minutos_random)
 
-        # Generamos un hash realista
+        # Generamos un hash realista único para este alumno
         hash_str = hashlib.sha256(f"{legajo}{timestamp}".encode()).hexdigest()
+
+        # --- SIMULACIÓN DE CLONACIÓN ---
+        # Hay un 10% de probabilidades de que este alumno entregue una copia exacta (mismo hash)
+        # de un parcial que ya haya entregado otro alumno previamente.
+        if hashes_existentes and random.random() < 0.10:
+            hash_str = random.choice(hashes_existentes)
+        else:
+            hashes_existentes.append(hash_str)
+        # -------------------------------
+
         comprobante = f"{hash_str[:4].upper()}-{hash_str[4:8].upper()}"
 
         datos.append(
