@@ -280,6 +280,7 @@ def _verificar_politica_reentrega(
     return True, False, ""
 
 
+# Nota (refactor): Considerar si mover a persistencia, utils u otro modulo
 def _guardar_archivo_atomico(
     archivo_recibido: Any, carpeta_destino: str, nombre_final: str, hash_esperado: str
 ) -> Tuple[bool, str]:
