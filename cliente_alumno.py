@@ -35,6 +35,7 @@ COLOR_EXITO: str = "#2ecc71"
 COLOR_NEUTRO: str = "gray"
 COLOR_TEXTO_HABILITADO: Tuple[str, str] = ("black", "white")
 
+# Nota: windows reemplaza roboto silenciosamente, buscar otra fuente.
 FUENTE_TITULO: Tuple[str, int, str] = ("Roboto", 24, "bold")
 FUENTE_NORMAL_BOLD: Tuple[str, int, str] = ("Roboto", 14, "bold")
 FUENTE_BOTON: Tuple[str, int, str] = ("Roboto", 16, "bold")
