@@ -1,172 +1,275 @@
+"""
+Módulo de pruebas unitarias y de integración para el servidor docente SEEP.
+Valida la inicialización de la API, las políticas de seguridad (PIN),
+la idempotencia de entregas y el control de concurrencia/reentregas.
+"""
+
 import os
 import sqlite3
 from io import BytesIO
+from typing import Any, Dict, Tuple
 
 import pytest
+from flask.testing import FlaskClient
 
 import seep_config
 from servidor_modulos.api import crear_app
 from servidor_modulos.persistencia import _crear_esquema
 
+# -----------------------------------------------------------------------------
+# CONSTANTES DE PRUEBA (Magic values extraídos)
+# -----------------------------------------------------------------------------
+PIN_PRUEBA: str = "1234"
+PIN_INVALIDO: str = "9999"
+MODULO_PRUEBA: str = "imperativo"
+FECHA_PRUEBA: str = "20261013"
+TURNO_PRUEBA: str = "TA"
+AULA_PRUEBA: str = "LAB3"
 
+LEGAJO_PRUEBA: str = "12345-6"
+APELLIDOS_PRUEBA: str = "Perez"
+NOMBRES_PRUEBA: str = "Juan"
+HOSTNAME_PRUEBA: str = "PC-TEST"
+
+VERSION_ANTIGUA: str = "0.0.1"
+CONTENIDO_ARCHIVO_TEST: bytes = b"program Hola; begin end."
+NOMBRE_ARCHIVO_TEST: str = "parcial.pas"
+
+HTTP_OK: int = 200
+HTTP_FORBIDDEN: int = 403
+HTTP_UPGRADE_REQUIRED: int = 426
+
+
+# -----------------------------------------------------------------------------
+# FIXTURES Y FUNCIONES AUXILIARES
+# -----------------------------------------------------------------------------
 @pytest.fixture
-def entorno_prueba(tmp_path):
-    """Fixture que levanta una BD SQLite en memoria/disco temporal y configura Flask."""
-    ruta_db = tmp_path / "test_registro.db"
+def entorno_prueba(tmp_path: Any) -> Tuple[FlaskClient, str]:
+    """
+    Fixture que levanta una base de datos SQLite en disco temporal y
+    configura una instancia de prueba de Flask.
+
+    Args:
+        tmp_path (Any): Directorio temporal provisto automáticamente por Pytest.
+
+    Returns:
+        Tuple[FlaskClient, str]: Cliente HTTP de prueba y la ruta física de la base de datos efímera.
+    """
+    ruta_base_datos = tmp_path / "test_registro.db"
     carpeta_entregas = tmp_path / "entregas"
 
-    # 1. Preparar Base de Datos con esquema
-    conn = sqlite3.connect(ruta_db)
-    cursor = conn.cursor()
-    _crear_esquema(cursor)
-    cursor.execute(
+    conexion = sqlite3.connect(str(ruta_base_datos))
+    cursor_activo = conexion.cursor()
+    _crear_esquema(cursor_activo)
+    cursor_activo.execute(
         "INSERT INTO configuracion (pin, modulo, fecha, turno, aula) VALUES (?, ?, ?, ?, ?)",
-        ("1234", "imperativo", "20261013", "TA", "LAB3"),
+        (PIN_PRUEBA, MODULO_PRUEBA, FECHA_PRUEBA, TURNO_PRUEBA, AULA_PRUEBA),
     )
-    conn.commit()
-    conn.close()
+    conexion.commit()
+    conexion.close()
 
-    # 2. Levantar Application Factory
-    app = crear_app(
-        modulo_elegido="imperativo",
-        pin_fijo="1234",
+    aplicacion_flask = crear_app(
+        modulo_elegido=MODULO_PRUEBA,
+        pin_fijo=PIN_PRUEBA,
         carpeta_elegida=str(carpeta_entregas),
-        ruta_db=str(ruta_db),
+        ruta_base_datos=str(ruta_base_datos),
     )
-    app.config["TESTING"] = True
+    aplicacion_flask.config["TESTING"] = True
 
-    return app.test_client(), str(ruta_db)
+    return aplicacion_flask.test_client(), str(ruta_base_datos)
 
 
-def generar_payload_base(pin="1234", identificador="12345/6"):
-    """Helper para generar un formulario multipart válido."""
+def generar_payload_base(
+    pin_seguridad: str = PIN_PRUEBA, identificador_alumno: str = LEGAJO_PRUEBA
+) -> Dict[str, Any]:
+    """
+    Genera un diccionario estructurado como formulario multipart/form-data válido
+    para simular una entrega de red desde el cliente alumno.
+
+    Args:
+        pin_seguridad (str): PIN de sesión (por defecto, el válido).
+        identificador_alumno (str): Legajo a utilizar en la entrega simulada.
+
+    Returns:
+        Dict[str, Any]: Payload formateado y listo para requests HTTP.
+    """
     return {
         "version": seep_config.VERSION_SEEP,
-        "pin": pin,
-        "apellidos": "Perez",
-        "nombres": "Juan",
-        "identificador": identificador,
-        "hostname": "PC-TEST",
-        "file": (BytesIO(b"program Hola; begin end."), "parcial.pas"),
+        "pin": pin_seguridad,
+        "apellidos": APELLIDOS_PRUEBA,
+        "nombres": NOMBRES_PRUEBA,
+        "identificador": identificador_alumno,
+        "hostname": HOSTNAME_PRUEBA,
+        "file": (BytesIO(CONTENIDO_ARCHIVO_TEST), NOMBRE_ARCHIVO_TEST),
     }
 
 
-def test_ping_version_correcta(entorno_prueba):
-    cliente, _ = entorno_prueba
-    respuesta = cliente.get(f"/ping?version={seep_config.VERSION_SEEP}")
-    assert respuesta.status_code == 200
-    assert respuesta.json["status"] == "ok"
+# -----------------------------------------------------------------------------
+# CASOS DE PRUEBA (TESTS)
+# -----------------------------------------------------------------------------
+def test_ping_version_correcta(entorno_prueba: Tuple[FlaskClient, str]) -> None:
+    """
+    Verifica que el servidor responda exitosamente ante un ping de validación
+    cuando el cliente posee la versión requerida actual.
+
+    Args:
+        entorno_prueba (Tuple[FlaskClient, str]): Dependencias inyectadas por el fixture.
+    """
+    cliente_api, _ = entorno_prueba
+    respuesta_http = cliente_api.get(f"/ping?version={seep_config.VERSION_SEEP}")
+
+    assert respuesta_http.status_code == HTTP_OK
+    assert respuesta_http.json["status"] == "ok"
 
 
-def test_ping_version_incorrecta(entorno_prueba):
-    cliente, _ = entorno_prueba
-    respuesta = cliente.get("/ping?version=0.0.1")
-    assert respuesta.status_code == 426
-    assert "incompatible" in respuesta.json["error"]
+def test_ping_version_incorrecta(entorno_prueba: Tuple[FlaskClient, str]) -> None:
+    """
+    Verifica que el servidor rechace la conexión con el código HTTP correspondiente
+    si la versión del software cliente es obsoleta.
+
+    Args:
+        entorno_prueba (Tuple[FlaskClient, str]): Dependencias inyectadas por el fixture.
+    """
+    cliente_api, _ = entorno_prueba
+    respuesta_http = cliente_api.get(f"/ping?version={VERSION_ANTIGUA}")
+
+    assert respuesta_http.status_code == HTTP_UPGRADE_REQUIRED
+    assert "incompatible" in respuesta_http.json["error"]
 
 
-def test_upload_pin_incorrecto(entorno_prueba):
-    cliente, _ = entorno_prueba
-    payload = generar_payload_base(pin="9999")
+def test_upload_pin_incorrecto(entorno_prueba: Tuple[FlaskClient, str]) -> None:
+    """
+    Verifica que el endpoint de entrega valide estrictamente el PIN de seguridad
+    y rechace peticiones inválidas.
 
-    respuesta = cliente.post(
-        "/upload", data=payload, content_type="multipart/form-data"
+    Args:
+        entorno_prueba (Tuple[FlaskClient, str]): Dependencias inyectadas por el fixture.
+    """
+    cliente_api, _ = entorno_prueba
+    payload_invalido = generar_payload_base(pin_seguridad=PIN_INVALIDO)
+
+    respuesta_http = cliente_api.post(
+        "/upload", data=payload_invalido, content_type="multipart/form-data"
     )
-    assert respuesta.status_code == 403
-    assert "PIN incorrecto" in respuesta.json["error"]
+
+    assert respuesta_http.status_code == HTTP_FORBIDDEN
+    assert "PIN incorrecto" in respuesta_http.json["error"]
 
 
-def test_upload_entrega_nueva_exitosa(entorno_prueba):
-    cliente, ruta_db = entorno_prueba
-    payload = generar_payload_base()
+def test_upload_entrega_nueva_exitosa(entorno_prueba: Tuple[FlaskClient, str]) -> None:
+    """
+    Verifica el "camino feliz" de una entrega inicial, comprobando la respuesta HTTP exitosa
+    y la persistencia correcta de los metadatos y estados en la base de datos local.
 
-    respuesta = cliente.post(
-        "/upload", data=payload, content_type="multipart/form-data"
+    Args:
+        entorno_prueba (Tuple[FlaskClient, str]): Dependencias inyectadas por el fixture.
+    """
+    cliente_api, ruta_base_datos = entorno_prueba
+    payload_valido = generar_payload_base()
+
+    respuesta_http = cliente_api.post(
+        "/upload", data=payload_valido, content_type="multipart/form-data"
     )
 
-    assert respuesta.status_code == 200
-    assert "comprobante" in respuesta.json
+    assert respuesta_http.status_code == HTTP_OK
+    assert "comprobante" in respuesta_http.json
 
-    # Verificar persistencia
-    conn = sqlite3.connect(ruta_db)
-    cursor = conn.cursor()
-    cursor.execute("SELECT legajo FROM alumnos WHERE legajo = '12345-6'")
-    assert cursor.fetchone() is not None
+    conexion = sqlite3.connect(ruta_base_datos)
+    cursor_activo = conexion.cursor()
+    cursor_activo.execute(
+        "SELECT legajo FROM alumnos WHERE legajo = ?", (LEGAJO_PRUEBA,)
+    )
+    assert cursor_activo.fetchone() is not None
 
-    cursor.execute("SELECT es_activa FROM entregas WHERE legajo = '12345-6'")
-    assert cursor.fetchone()[0] == 1
-    conn.close()
+    cursor_activo.execute(
+        "SELECT es_activa FROM entregas WHERE legajo = ?", (LEGAJO_PRUEBA,)
+    )
+    assert cursor_activo.fetchone()[0] == 1
+    conexion.close()
 
 
-def test_upload_reentrega_bloqueada(entorno_prueba):
-    cliente, _ = entorno_prueba
+def test_upload_reentrega_bloqueada(entorno_prueba: Tuple[FlaskClient, str]) -> None:
+    """
+    Verifica la política de seguridad que bloquea automáticamente un segundo intento
+    de entrega de un mismo alumno sin autorización explícita previa.
 
-    # 1. Primera entrega (exitosa)
-    cliente.post(
+    Args:
+        entorno_prueba (Tuple[FlaskClient, str]): Dependencias inyectadas por el fixture.
+    """
+    cliente_api, _ = entorno_prueba
+
+    cliente_api.post(
         "/upload", data=generar_payload_base(), content_type="multipart/form-data"
     )
 
-    # 2. Segunda entrega (mismo identificador, debe fallar)
     payload_reentrega = generar_payload_base()
     payload_reentrega["file"] = (
         BytesIO(b"program Hola2; begin end."),
         "parcial_v2.pas",
     )
 
-    respuesta = cliente.post(
+    respuesta_http = cliente_api.post(
         "/upload", data=payload_reentrega, content_type="multipart/form-data"
     )
 
-    assert respuesta.status_code == 403
-    assert "Ya registramos una entrega tuya" in respuesta.json["error"]
+    assert respuesta_http.status_code == HTTP_FORBIDDEN
+    assert "Ya registramos una entrega tuya" in respuesta_http.json["error"]
 
 
-def test_upload_reentrega_habilitada_y_consumida(entorno_prueba):
-    cliente, ruta_db = entorno_prueba
-    legajo = "12345-6"
+def test_upload_reentrega_habilitada_y_consumida(
+    entorno_prueba: Tuple[FlaskClient, str],
+) -> None:
+    """
+    Verifica que un alumno autorizado pueda reentregar su examen exitosamente, validando
+    que dicho permiso de un solo uso se consuma inmediatamente y que la base de datos
+    marque la nueva entrega como la única activa.
 
-    # 1. Primera entrega
-    cliente.post(
+    Args:
+        entorno_prueba (Tuple[FlaskClient, str]): Dependencias inyectadas por el fixture.
+    """
+    cliente_api, ruta_base_datos = entorno_prueba
+
+    cliente_api.post(
         "/upload",
-        data=generar_payload_base(identificador=legajo),
+        data=generar_payload_base(identificador_alumno=LEGAJO_PRUEBA),
         content_type="multipart/form-data",
     )
 
-    # 2. Docente habilita la reentrega (Simulando la interfaz)
-    conn = sqlite3.connect(ruta_db)
-    cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE alumnos SET reentrega_habilitada = 1 WHERE legajo = ?", (legajo,)
+    conexion = sqlite3.connect(ruta_base_datos)
+    cursor_activo = conexion.cursor()
+    cursor_activo.execute(
+        "UPDATE alumnos SET reentrega_habilitada = 1 WHERE legajo = ?", (LEGAJO_PRUEBA,)
     )
-    conn.commit()
-    conn.close()
+    conexion.commit()
+    conexion.close()
 
-    # 3. Alumno reentrega
-    payload_reentrega = generar_payload_base(identificador=legajo)
+    payload_reentrega = generar_payload_base(identificador_alumno=LEGAJO_PRUEBA)
     payload_reentrega["file"] = (
         BytesIO(b"program Hola3; begin end."),
         "parcial_v3.pas",
     )
-    respuesta = cliente.post(
+    respuesta_http = cliente_api.post(
         "/upload", data=payload_reentrega, content_type="multipart/form-data"
     )
 
-    assert respuesta.status_code == 200
+    assert respuesta_http.status_code == HTTP_OK
 
-    # 4. Verificar que el permiso se consumió y el historial se actualizó
-    conn = sqlite3.connect(ruta_db)
-    cursor = conn.cursor()
+    conexion = sqlite3.connect(ruta_base_datos)
+    cursor_activo = conexion.cursor()
 
-    cursor.execute(
-        "SELECT reentrega_habilitada FROM alumnos WHERE legajo = ?", (legajo,)
+    cursor_activo.execute(
+        "SELECT reentrega_habilitada FROM alumnos WHERE legajo = ?", (LEGAJO_PRUEBA,)
     )
-    assert cursor.fetchone()[0] == 0  # Permiso consumido
+    assert cursor_activo.fetchone()[0] == 0
 
-    cursor.execute(
-        "SELECT COUNT(*) FROM entregas WHERE legajo = ? AND es_activa = 1", (legajo,)
+    cursor_activo.execute(
+        "SELECT COUNT(*) FROM entregas WHERE legajo = ? AND es_activa = 1",
+        (LEGAJO_PRUEBA,),
     )
-    assert cursor.fetchone()[0] == 1  # Solo la última entrega está activa
+    assert cursor_activo.fetchone()[0] == 1
 
-    cursor.execute("SELECT COUNT(*) FROM entregas WHERE legajo = ?", (legajo,))
-    assert cursor.fetchone()[0] == 2  # Historial inmutable tiene 2 registros
-    conn.close()
+    cursor_activo.execute(
+        "SELECT COUNT(*) FROM entregas WHERE legajo = ?", (LEGAJO_PRUEBA,)
+    )
+    assert cursor_activo.fetchone()[0] == 2
+    conexion.close()
