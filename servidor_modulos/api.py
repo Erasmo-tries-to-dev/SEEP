@@ -36,13 +36,11 @@ HOST_BIND: str = "0.0.0.0"
 CODIGO_ERROR_PUERTO_WIN: int = 10048
 MAX_INTENTOS_PIN: int = 5
 TIEMPO_BLOQUEO_SEG: int = 60
-PUERTO_BEACON: int = 5555
 INTERVALO_FARO_SEG: int = 2
 IP_BROADCAST: str = "255.255.255.255"
 IP_LOCALHOST: str = "127.0.0.1"
 CARACTERES_PIN: str = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 LONGITUD_PIN: int = 6
-CODIFICACION_TEXTO: str = "utf-8"
 
 # -----------------------------------------------------------------------------
 # ESTADOS COMPARTIDOS Y CERROJOS (LOCKS) DE CONCURRENCIA
@@ -489,7 +487,7 @@ def _faro_udp_multired(ips_locales_detectadas: List[str], modulo_activo: str) ->
         modulo_activo (str): Identificador del examen que el faro anunciará a los clientes.
     """
     logging.info(
-        f"Faro UDP Multidifusión encendido en puerto {PUERTO_BEACON}. Escaneando {len(ips_locales_detectadas)} red(es)."
+        f"Faro UDP Multidifusión encendido en puerto {seep_config.PUERTO_BEACON}. Escaneando {len(ips_locales_detectadas)} red(es)."
     )
 
     while True:
@@ -501,16 +499,16 @@ def _faro_udp_multired(ips_locales_detectadas: List[str], modulo_activo: str) ->
                 socket_transmisor.bind((ip_origen, 0))
 
                 datos_descubrimiento = {
-                    "tipo": "SEEP_BEACON",
+                    "tipo": seep_config.IDENTIFICADOR_BEACON,
                     "ip": ip_origen,
                     "modulo": modulo_activo,
                 }
                 paquete_codificado = json.dumps(datos_descubrimiento).encode(
-                    CODIFICACION_TEXTO
+                    seep_config.CODIFICACION_TEXTO
                 )
 
                 socket_transmisor.sendto(
-                    paquete_codificado, (IP_BROADCAST, PUERTO_BEACON)
+                    paquete_codificado, (IP_BROADCAST, seep_config.PUERTO_BEACON)
                 )
             except Exception:
                 pass

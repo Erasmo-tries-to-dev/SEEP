@@ -4,6 +4,7 @@ Provee la interfaz gráfica de usuario (GUI) para que el estudiante complete
 sus datos, seleccione el archivo de examen y lo transmita al servidor docente.
 Implementa un diseño multihilo para aislar las operaciones de red (Auto-Discovery y HTTP)
 del hilo principal, asegurando que la interfaz no se congele.
+#Nota: La performance es adecuada, pero tambien conviene evaluar si tkinker sigue siendo la mejor opcion
 """
 
 import logging

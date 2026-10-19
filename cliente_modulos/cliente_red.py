@@ -17,13 +17,9 @@ import requests
 import seep_config
 
 # -----------------------------------------------------------------------------
-# CONSTANTES DE RED Y ESTADOS HTTP
+# CONSTANTES LOCALES Y ESTADOS HTTP
 # -----------------------------------------------------------------------------
-PUERTO_BEACON: int = 5555
 HOST_ESCUCHA_UDP: str = "0.0.0.0"
-TAMANO_BUFFER_BYTES: int = 1024
-CODIFICACION_TEXTO: str = "utf-8"
-IDENTIFICADOR_BEACON: str = "SEEP_BEACON"
 
 HTTP_OK: int = 200
 HTTP_FORBIDDEN: int = 403
@@ -80,20 +76,24 @@ def buscar_servidor_en_red(timeout_segundos: int = 5) -> Optional[str]:
     """
     socket_escucha = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     socket_escucha.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    socket_escucha.bind((HOST_ESCUCHA_UDP, PUERTO_BEACON))
+    socket_escucha.bind((HOST_ESCUCHA_UDP, seep_config.PUERTO_BEACON))
     socket_escucha.settimeout(timeout_segundos)
 
-    logging.info(f"Buscando servidor SEEP en red local (Puerto UDP {PUERTO_BEACON})...")
+    logging.info(
+        f"Buscando servidor SEEP en red local (Puerto UDP {seep_config.PUERTO_BEACON})..."
+    )
 
     try:
         while True:
             paquete_bytes, direccion_origen = socket_escucha.recvfrom(
-                TAMANO_BUFFER_BYTES
+                seep_config.TAMANO_BUFFER_UDP
             )
             try:
-                carga_util = json.loads(paquete_bytes.decode(CODIFICACION_TEXTO))
+                carga_util = json.loads(
+                    paquete_bytes.decode(seep_config.CODIFICACION_TEXTO)
+                )
 
-                if carga_util.get("tipo") == IDENTIFICADOR_BEACON:
+                if carga_util.get("tipo") == seep_config.IDENTIFICADOR_BEACON:
                     ip_detectada = carga_util.get("ip")
                     logging.info(
                         f"¡Servidor detectado automáticamente en IP: {ip_detectada}!"
@@ -155,7 +155,6 @@ def enviar_examen(datos_entrega: DatosEntrega) -> ResultadoEntrega:
 
     url_servidor_base = f"http://{datos_entrega.ip}:{seep_config.PUERTO_API}"
 
-    # Verificación de Conectividad y Versión (Ping)
     try:
         respuesta_ping = requests.get(
             f"{url_servidor_base}/ping",

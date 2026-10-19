@@ -23,7 +23,7 @@ logging.basicConfig(
 )
 
 
-# Esto es un parche temporal debido a que interfaz.py parece no escuchar la excepcion de puerto ocupado, o bien esta nunca de lanza, hay que averiguar porque ocurre esto.
+# NOTA: Esto es un parche temporal debido a que interfaz.py parece no escuchar la excepcion de puerto ocupado, o bien esta nunca de lanza, hay que averiguar porque ocurre esto.
 # No es lo ideal, pero permite verificar si el puerto esta ocupado antes de iniciar la interfaz y mostrar un mensaje de error.
 def verificar_puerto_libre(puerto: int) -> bool:
     """Intenta conectarse al puerto para ver si ya hay un servidor escuchando."""
