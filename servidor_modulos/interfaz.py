@@ -614,6 +614,18 @@ class InterfazServidor(ctk.CTk):
         )
 
         os.makedirs(ruta_directorio_entregas, exist_ok=True)
+
+        ruta_archivo_log = os.path.join(ruta_directorio_entregas, "seep_auditoria.log")
+        file_handler = logging.FileHandler(
+            ruta_archivo_log, encoding=seep_config.CODIFICACION_TEXTO
+        )
+        file_handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S"
+            )
+        )
+        logging.getLogger().addHandler(file_handler)
+
         self.ruta_db = os.path.join(ruta_directorio_entregas, "seep_registro.db")
 
         pin_sesion = persistencia.inicializar_base_datos(

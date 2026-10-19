@@ -4,6 +4,8 @@
 >
 > - El sistema unifica el cliente alumno y el servidor docente en el mismo repositorio para simplificar el despliegue.
 > - Se gestionan las dependencias mediante `requirements.txt` y se compilan los ejecutables nativos para Windows mediante flujos automatizados.
+> - Se reconoce que el tamaño del codigo ha crecido significativamente en relacion a la anterior version presentada y se destaca la necesidad de manejar esto con un refactoring mas estructural para garantizar la mantenibilidad del proyecto a largo plazo.Varios comentarios a lo largo del codigo marcan futuros refactorings puntuales.
+> - Se dejo pendiente el certificate pinning (Punto 19, recomendacions priorizadas), esto requiere cambiar de waitress a otro servidor y debe analizarse con tiempo cual es mas conveniente.
 > - Cualquier sugerencia, crítica o corrección es bienvenida.
 
 ---
