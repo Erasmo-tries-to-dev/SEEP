@@ -41,14 +41,6 @@ FUENTE_TITULO: Tuple[str, int, str] = ("Roboto", 24, "bold")
 FUENTE_NORMAL_BOLD: Tuple[str, int, str] = ("Roboto", 14, "bold")
 FUENTE_BOTON: Tuple[str, int, str] = ("Roboto", 16, "bold")
 
-# Nota(refactor): extraer y mover a seep_config
-MODULOS_DISPONIBLES: List[str] = ["Imperativo", "Objetos", "Concurrente"]
-TIPOS_ARCHIVO_POR_MODULO: Dict[str, List[Tuple[str, str]]] = {
-    "Imperativo": [("Archivos Pascal", "*.pas")],
-    "Objetos": [("Archivos ZIP", "*.zip")],
-}
-TIPOS_ARCHIVO_POR_DEFECTO: List[Tuple[str, str]] = [("Todos los archivos", "*.*")]
-
 CAMPOS_FORMULARIO: List[Dict[str, Any]] = [
     {
         "id": "ip",
@@ -190,7 +182,7 @@ class AppAlumno(ctk.CTk):
         )
         self.combo_modulo = ctk.CTkOptionMenu(
             self.marco_formulario,
-            values=MODULOS_DISPONIBLES,
+            values=seep_config.MODULOS_SOPORTADOS,
             command=self.al_cambiar_modulo,
         )
         self.combo_modulo.pack(pady=(2, 10), padx=20, fill="x")
@@ -298,8 +290,8 @@ class AppAlumno(ctk.CTk):
         Filtra y valida la extensión y el tamaño del documento escogido.
         """
         modulo_activo = self.combo_modulo.get()
-        tipos_permitidos = TIPOS_ARCHIVO_POR_MODULO.get(
-            modulo_activo, TIPOS_ARCHIVO_POR_DEFECTO
+        tipos_permitidos = seep_config.FILTROS_ARCHIVO_POR_MODULO.get(
+            modulo_activo, seep_config.FILTRO_ARCHIVO_POR_DEFECTO
         )
 
         ruta_explorador = filedialog.askopenfilename(

@@ -114,10 +114,11 @@ class InterfazServidor(ctk.CTk):
         ).pack(pady=20)
 
         ctk.CTkLabel(self.frame_config, text="Módulo a evaluar:").pack(pady=(10, 0))
-        self.var_modulo = ctk.StringVar(value="imperativo")
+
+        self.var_modulo = ctk.StringVar(value=seep_config.MODULOS_SOPORTADOS[0])
         ctk.CTkOptionMenu(
             self.frame_config,
-            values=["imperativo", "objetos", "concurrente"],
+            values=seep_config.MODULOS_SOPORTADOS,
             variable=self.var_modulo,
         ).pack(pady=5)
 

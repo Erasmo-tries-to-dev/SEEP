@@ -5,7 +5,7 @@ Centraliza el contrato de Auto-Discovery (Faro UDP) para mantener coherencia ent
 """
 
 import hashlib
-from typing import Any, Tuple
+from typing import Any, Dict, List, Tuple
 
 # -----------------------------------------------------------------------------
 # CONSTANTES DE RED Y AUTO-DISCOVERY (CONTRATO COMPARTIDO)
@@ -27,12 +27,27 @@ MAX_TAMANO_MB: int = 1
 MAX_TAMANO_BYTES: int = MAX_TAMANO_MB * 1024 * 1024
 TAMANO_BLOQUE_HASH: int = 4096
 
+# Definición de Módulos Académicos
 MODULO_IMPERATIVO: str = "imperativo"
 MODULO_OBJETOS: str = "objetos"
 MODULO_CONCURRENTE: str = "concurrente"
 
+MODULOS_SOPORTADOS: List[str] = [
+    MODULO_IMPERATIVO,
+    MODULO_OBJETOS,
+    MODULO_CONCURRENTE,
+]
+
+# Definición de Extensiones
 EXT_PASCAL: str = ".pas"
 EXT_ZIP: str = ".zip"
+
+# Configuración de exploración de archivos para las interfaces GUI
+FILTROS_ARCHIVO_POR_MODULO: Dict[str, List[Tuple[str, str]]] = {
+    MODULO_IMPERATIVO: [("Archivos Pascal", f"*{EXT_PASCAL}")],
+    MODULO_OBJETOS: [("Archivos ZIP", f"*{EXT_ZIP}")],
+}
+FILTRO_ARCHIVO_POR_DEFECTO: List[Tuple[str, str]] = [("Todos los archivos", "*.*")]
 
 
 # -----------------------------------------------------------------------------
